@@ -23,7 +23,12 @@ class AppConfigViewSet(viewsets.ViewSet):
             # 获取或创建配置（单例模式）
             config, created = AppTestConfig.objects.get_or_create(
                 id=1,
-                defaults={'adb_path': 'adb'}
+                defaults={
+                    'adb_path': 'adb',
+                    'appium_server_url': 'http://127.0.0.1:4723',
+                    'appium_command': 'appium',
+                    'appium_auto_start': True,
+                }
             )
             
             serializer = AppTestConfigSerializer(config)
@@ -45,7 +50,12 @@ class AppConfigViewSet(viewsets.ViewSet):
             # 获取或创建配置（单例模式）
             config, created = AppTestConfig.objects.get_or_create(
                 id=1,
-                defaults={'adb_path': 'adb'}
+                defaults={
+                    'adb_path': 'adb',
+                    'appium_server_url': 'http://127.0.0.1:4723',
+                    'appium_command': 'appium',
+                    'appium_auto_start': True,
+                }
             )
             
             serializer = AppTestConfigSerializer(config, data=request.data, partial=True)

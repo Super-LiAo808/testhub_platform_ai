@@ -909,9 +909,11 @@
                   {{ formatDateTime(row.created_at) }}
                 </template>
               </el-table-column>
-              <el-table-column :label="$t('dataFactory.history.operation')" width="100" align="center" fixed="right">
+              <el-table-column :label="$t('dataFactory.history.operation')" width="120" align="center" fixed="right">
                 <template #default="{ row }">
-                  <el-button size="small" type="danger" @click="deleteRecord(row)">{{ $t('dataFactory.actions.delete') }}</el-button>
+                  <div class="table-actions">
+                    <el-button link type="danger" size="small" @click="deleteRecord(row)">{{ $t('dataFactory.actions.delete') }}</el-button>
+                  </div>
                 </template>
               </el-table-column>
             </el-table>

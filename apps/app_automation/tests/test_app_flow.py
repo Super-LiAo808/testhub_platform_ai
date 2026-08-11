@@ -118,6 +118,8 @@ class TestAppFlow:
             ui_flow = test_case.ui_flow.get('steps', [])
         else:
             ui_flow = []
+        from apps.app_automation.services.recording import normalize_recorded_steps
+        ui_flow = normalize_recorded_steps(ui_flow)
         variables = test_case.variables or []
         
         # 创建进度回调

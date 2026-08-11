@@ -93,60 +93,63 @@
         </template>
       </el-table-column>
 
-      <el-table-column :label="$t('appAutomation.common.operation')" width="250" fixed="right">
+      <el-table-column :label="$t('appAutomation.common.operation')" width="260" fixed="right">
         <template #default="{ row }">
-          <el-button
-            v-if="row.status === 'available' || row.status === 'online'"
-            link
-            size="small"
-            type="primary"
-            @click="lockDevice(row)"
-          >
-            {{ $t('appAutomation.device.lock') }}
-          </el-button>
-          <el-button
-            v-if="row.status === 'locked'"
-            link
-            size="small"
-            type="success"
-            @click="unlockDevice(row)"
-          >
-            {{ $t('appAutomation.device.unlock') }}
-          </el-button>
-          <el-button
-            v-if="isRemoteDevice(row.connection_type) && row.status === 'offline'"
-            link
-            size="small"
-            type="warning"
-            :loading="reconnectingDevices[row.id]"
-            @click="reconnectDevice(row)"
-          >
-            {{ $t('appAutomation.device.reconnect') }}
-          </el-button>
-          <el-button
-            link
-            size="small"
-            @click="viewDeviceInfo(row)"
-          >
-            {{ $t('appAutomation.common.details') }}
-          </el-button>
-          <el-button
-            v-if="isRemoteDevice(row.connection_type) && (row.status === 'online' || row.status === 'available')"
-            link
-            size="small"
-            type="warning"
-            @click="disconnectDevice(row)"
-          >
-            {{ $t('appAutomation.common.disconnect') }}
-          </el-button>
-          <el-button
-            link
-            size="small"
-            type="danger"
-            @click="handleDeleteDevice(row)"
-          >
-            {{ $t('appAutomation.common.delete') }}
-          </el-button>
+          <div class="table-actions">
+            <el-button
+              v-if="row.status === 'available' || row.status === 'online'"
+              link
+              size="small"
+              type="primary"
+              @click="lockDevice(row)"
+            >
+              {{ $t('appAutomation.device.lock') }}
+            </el-button>
+            <el-button
+              v-if="row.status === 'locked'"
+              link
+              size="small"
+              type="success"
+              @click="unlockDevice(row)"
+            >
+              {{ $t('appAutomation.device.unlock') }}
+            </el-button>
+            <el-button
+              v-if="isRemoteDevice(row.connection_type) && row.status === 'offline'"
+              link
+              size="small"
+              type="warning"
+              :loading="reconnectingDevices[row.id]"
+              @click="reconnectDevice(row)"
+            >
+              {{ $t('appAutomation.device.reconnect') }}
+            </el-button>
+            <el-button
+              link
+              type="primary"
+              size="small"
+              @click="viewDeviceInfo(row)"
+            >
+              {{ $t('appAutomation.common.details') }}
+            </el-button>
+            <el-button
+              v-if="isRemoteDevice(row.connection_type) && (row.status === 'online' || row.status === 'available')"
+              link
+              size="small"
+              type="warning"
+              @click="disconnectDevice(row)"
+            >
+              {{ $t('appAutomation.common.disconnect') }}
+            </el-button>
+            <el-button
+              link
+              size="small"
+              type="danger"
+              @click="handleDeleteDevice(row)"
+            >
+              {{ $t('appAutomation.common.delete') }}
+            </el-button>
+          </div>
         </template>
       </el-table-column>
     </el-table>

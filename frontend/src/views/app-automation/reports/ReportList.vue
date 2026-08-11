@@ -84,12 +84,14 @@
           <el-table-column :label="$t('appAutomation.report.lastExecution')" min-width="150">
             <template #default="{ row }">{{ formatDateTime(row.last_run_at) }}</template>
           </el-table-column>
-          <el-table-column :label="$t('appAutomation.common.operation')" min-width="200">
+          <el-table-column :label="$t('appAutomation.common.operation')" width="260" fixed="right">
             <template #default="{ row }">
-              <el-button type="primary" link size="small" @click="viewSuiteDetail(row)">{{ $t('appAutomation.common.details') }}</el-button>
-              <el-button type="success" link size="small" @click="viewSuiteExecutions(row)">{{ $t('appAutomation.report.executionRecords') }}</el-button>
-              <el-button type="success" link size="small" @click="viewSuiteAllureReport(row)">{{ $t('appAutomation.report.allureReport') }}</el-button>
-              <el-button type="danger" link size="small" @click="deleteSuiteReport(row)">{{ $t('appAutomation.common.delete') }}</el-button>
+              <div class="table-actions">
+                <el-button link type="primary" size="small" @click="viewSuiteDetail(row)">{{ $t('appAutomation.common.details') }}</el-button>
+                <el-button link type="success" size="small" @click="viewSuiteExecutions(row)">{{ $t('appAutomation.report.executionRecords') }}</el-button>
+                <el-button link type="success" size="small" @click="viewSuiteAllureReport(row)">{{ $t('appAutomation.report.allureReport') }}</el-button>
+                <el-button link type="danger" size="small" @click="deleteSuiteReport(row)">{{ $t('appAutomation.common.delete') }}</el-button>
+              </div>
             </template>
           </el-table-column>
         </el-table>
@@ -192,11 +194,13 @@
           <el-table-column :label="$t('appAutomation.report.executionTime')" min-width="150">
             <template #default="{ row }">{{ formatDateTime(row.started_at) }}</template>
           </el-table-column>
-          <el-table-column :label="$t('appAutomation.common.operation')" min-width="150">
+          <el-table-column :label="$t('appAutomation.common.operation')" width="200" fixed="right">
             <template #default="{ row }">
-              <el-button type="primary" link size="small" @click="viewCaseDetail(row)">{{ $t('appAutomation.common.details') }}</el-button>
-              <el-button v-if="row.report_path" type="success" link size="small" @click="viewAllureReport(row)">{{ $t('appAutomation.report.allureReport') }}</el-button>
-              <el-button type="danger" link size="small" @click="deleteCaseReport(row)">{{ $t('appAutomation.common.delete') }}</el-button>
+              <div class="table-actions">
+                <el-button link type="primary" size="small" @click="viewCaseDetail(row)">{{ $t('appAutomation.common.details') }}</el-button>
+                <el-button v-if="row.report_path" link type="success" size="small" @click="viewAllureReport(row)">{{ $t('appAutomation.report.allureReport') }}</el-button>
+                <el-button link type="danger" size="small" @click="deleteCaseReport(row)">{{ $t('appAutomation.common.delete') }}</el-button>
+              </div>
             </template>
           </el-table-column>
         </el-table>
@@ -301,10 +305,12 @@
         <el-table-column :label="$t('appAutomation.report.executionTime')" width="170">
           <template #default="{ row }">{{ formatDateTime(row.started_at) }}</template>
         </el-table-column>
-        <el-table-column :label="$t('appAutomation.common.operation')" width="120" fixed="right">
+        <el-table-column :label="$t('appAutomation.common.operation')" width="140" fixed="right">
           <template #default="{ row }">
-            <el-button v-if="row.report_path" type="success" link size="small" @click="viewAllureReport(row)">{{ $t('appAutomation.report.allureReport') }}</el-button>
-            <el-button v-if="row.error_message" type="danger" link size="small" @click="viewCaseDetail(row)">{{ $t('appAutomation.common.error') }}</el-button>
+            <div class="table-actions">
+              <el-button v-if="row.report_path" link type="success" size="small" @click="viewAllureReport(row)">{{ $t('appAutomation.report.allureReport') }}</el-button>
+              <el-button v-if="row.error_message" link type="danger" size="small" @click="viewCaseDetail(row)">{{ $t('appAutomation.common.error') }}</el-button>
+            </div>
           </template>
         </el-table-column>
       </el-table>

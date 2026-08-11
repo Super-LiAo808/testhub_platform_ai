@@ -20,9 +20,8 @@ from .models import (
     TestSuiteScript, TestExecution, Screenshot,
     ElementGroup, PageObject, PageObjectElement, ScriptStep, ScriptElementUsage,
     TestCase, TestCaseStep, TestCaseExecution, OperationRecord,
-    TestCase, TestCaseStep, TestCaseExecution, OperationRecord,
     UiScheduledTask, UiNotificationLog, UiTaskNotificationSetting,
-    AICase, AIExecutionRecord
+    AICase, AIExecutionRecord, PageElementScanJob
 )
 from .serializers import (
     UiProjectSerializer, UiProjectCreateSerializer, UiProjectUpdateSerializer,
@@ -172,7 +171,7 @@ class ElementViewSet(viewsets.ModelViewSet):
     queryset = Element.objects.all()
     permission_classes = [IsAuthenticated]
     filter_backends = [DjangoFilterBackend, filters.SearchFilter]
-    filterset_fields = ['project', 'locator_strategy', 'element_type', 'validation_status', 'group']
+    filterset_fields = ['project', 'locator_strategy', 'element_type', 'validation_status', 'group', 'discovery_source']
     search_fields = ['name', 'description', 'page', 'component_name']
 
     def get_serializer_class(self):
@@ -276,6 +275,120 @@ class ElementViewSet(viewsets.ModelViewSet):
         element = self.get_object()
         suggestions = self._generate_element_suggestions(element)
         return Response({'suggestions': suggestions})
+
+    @action(detail=False, methods=['post'], url_path='scan-page')
+    def scan_page(self, request):
+        """创建页面元素扫描异步任务，立即返回 job_id，前端轮询状态。"""
+        project_id = request.data.get('project_id') or request.data.get('project')
+        url = (request.data.get('url') or '').strip()
+        group_id = request.data.get('group_id') or request.data.get('group')
+        headless = True  # 服务端强制无头
+        try:
+            max_elements = int(request.data.get('max_elements') or 200)
+        except (TypeError, ValueError):
+            max_elements = 200
+        max_elements = max(1, min(max_elements, 500))
+
+        if not project_id:
+            return Response({'error': '需要指定 project_id'}, status=status.HTTP_400_BAD_REQUEST)
+        if not url:
+            return Response({'error': '需要指定 url'}, status=status.HTTP_400_BAD_REQUEST)
+
+        user = request.user
+        project = UiProject.objects.filter(
+            models.Q(owner=user) | models.Q(members=user),
+            id=project_id,
+        ).distinct().first()
+        if not project:
+            return Response({'error': '项目不存在或无权限'}, status=status.HTTP_404_NOT_FOUND)
+
+        target_group = None
+        if group_id:
+            try:
+                gid = int(group_id)
+            except (TypeError, ValueError):
+                return Response({'error': 'group_id 无效'}, status=status.HTTP_400_BAD_REQUEST)
+            target_group = ElementGroup.objects.filter(id=gid, project=project).first()
+            if not target_group:
+                return Response({'error': '分组不存在或不属于当前项目'}, status=status.HTTP_400_BAD_REQUEST)
+
+        # 同步校验 URL（SSRF / 格式），失败快速返回，不创建任务
+        try:
+            from apps.ui_automation.services.page_element_scanner import _normalize_url
+            url = _normalize_url(url)
+        except ValueError as exc:
+            return Response({'error': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+
+        # 同项目排队/运行中任务数量限制，避免堆积
+        active_count = PageElementScanJob.objects.filter(
+            project=project,
+            status__in=('pending', 'running'),
+        ).count()
+        if active_count >= 5:
+            return Response(
+                {'error': f'当前项目已有 {active_count} 个扫描任务进行中，请稍后再试'},
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
+
+        job = PageElementScanJob.objects.create(
+            project=project,
+            target_group=target_group,
+            url=url,
+            max_elements=max_elements,
+            headless=headless,
+            status='pending',
+            progress=0,
+            message='任务已创建，等待执行…',
+            created_by=user,
+        )
+
+        from apps.ui_automation.services.page_scan_job import (
+            serialize_scan_job,
+            start_page_scan_job_async,
+        )
+        start_page_scan_job_async(job.id)
+
+        return Response({
+            'async': True,
+            'job_id': job.id,
+            'job': serialize_scan_job(job),
+            'message': '扫描任务已提交，请轮询任务状态',
+        }, status=status.HTTP_202_ACCEPTED)
+
+    @action(detail=False, methods=['get'], url_path='scan-jobs')
+    def scan_job_list(self, request):
+        """当前用户可见的页面扫描任务列表（可按 project_id 过滤）。"""
+        project_id = request.query_params.get('project_id') or request.query_params.get('project')
+        try:
+            limit = int(request.query_params.get('limit') or 30)
+        except (TypeError, ValueError):
+            limit = 30
+        pid = None
+        if project_id not in (None, ''):
+            try:
+                pid = int(project_id)
+            except (TypeError, ValueError):
+                return Response({'error': 'project_id 无效'}, status=status.HTTP_400_BAD_REQUEST)
+
+        from apps.ui_automation.services.page_scan_job import list_scan_jobs_for_user
+        items = list_scan_jobs_for_user(request.user, project_id=pid, limit=limit)
+        return Response({'count': len(items), 'results': items})
+
+    @action(detail=False, methods=['get'], url_path=r'scan-jobs/(?P<job_id>[0-9]+)')
+    def scan_job_detail(self, request, job_id=None):
+        """查询页面扫描异步任务状态。"""
+        user = request.user
+        try:
+            job = PageElementScanJob.objects.select_related('project').get(id=job_id)
+        except PageElementScanJob.DoesNotExist:
+            return Response({'error': '扫描任务不存在'}, status=status.HTTP_404_NOT_FOUND)
+
+        project = job.project
+        if not (project.owner_id == user.id or project.members.filter(id=user.id).exists()):
+            return Response({'error': '无权限查看该任务'}, status=status.HTTP_403_FORBIDDEN)
+
+        from apps.ui_automation.services.page_scan_job import serialize_scan_job
+        return Response(serialize_scan_job(job))
 
     def _perform_element_validation(self, element):
         """执行元素验证（模拟实现）"""
@@ -1368,7 +1481,8 @@ class TestCaseViewSet(viewsets.ModelViewSet):
                         'locator_value': step.element.locator_value,
                         'name': step.element.name,
                         'wait_timeout': step.element.wait_timeout,  # 添加元素的等待超时设置（秒）
-                        'force_action': step.element.force_action  # 添加强制操作选项
+                        'force_action': step.element.force_action,  # 添加强制操作选项
+                        'backup_locators': step.element.backup_locators or [],
                     }
                 else:
                     step_data['element_data'] = None
@@ -1911,6 +2025,28 @@ class TestCaseViewSet(viewsets.ModelViewSet):
 
         return Response({'results': results})
 
+    @action(detail=True, methods=['post'], url_path='export-script')
+    def export_script(self, request, pk=None):
+        """导出 TestCase 为 Playwright/Selenium 源码脚本"""
+        from .views_pipeline import export_testcase_script_response
+        return export_testcase_script_response(self.get_object(), request)
+
+    @action(detail=True, methods=['post'], url_path='diagnose')
+    def diagnose_last_failure(self, request, pk=None):
+        """基于最近一次失败执行做诊断（可传 execution_id）"""
+        from .views_pipeline import diagnose_testcase_execution
+        test_case = self.get_object()
+        execution_id = request.data.get('execution_id')
+        if execution_id:
+            execution = TestCaseExecution.objects.filter(id=execution_id, test_case=test_case).first()
+        else:
+            execution = TestCaseExecution.objects.filter(
+                test_case=test_case, status__in=['failed', 'error']
+            ).order_by('-created_at').first()
+        if not execution:
+            return Response({'error': '未找到失败执行记录'}, status=status.HTTP_404_NOT_FOUND)
+        return diagnose_testcase_execution(execution, request)
+
     def perform_destroy(self, instance):
         # 记录操作（在删除前记录）
         log_operation('delete', 'test_case', instance.id, instance.name, self.request.user)
@@ -2001,6 +2137,11 @@ class TestCaseExecutionViewSet(viewsets.ModelViewSet):
         except Exception as e:
             logger.error(f"批量删除测试用例执行记录失败: {str(e)}", exc_info=True)
             return Response({'error': f'批量删除失败: {str(e)}'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+    @action(detail=True, methods=['post'], url_path='diagnose')
+    def diagnose(self, request, pk=None):
+        from .views_pipeline import diagnose_testcase_execution
+        return diagnose_testcase_execution(self.get_object(), request)
 
 
 class OperationRecordViewSet(viewsets.ReadOnlyModelViewSet):
@@ -2254,7 +2395,8 @@ class UiScheduledTaskViewSet(viewsets.ModelViewSet):
                                             'locator_value': step.element.locator_value,
                                             'name': step.element.name,
                                             'wait_timeout': step.element.wait_timeout,
-                                            'force_action': step.element.force_action
+                                            'force_action': step.element.force_action,
+                                            'backup_locators': step.element.backup_locators or [],
                                         }
                                     else:
                                         step_data['element_data'] = None
@@ -2949,6 +3091,9 @@ class AICaseViewSet(viewsets.ModelViewSet):
     def run(self, request, pk=None):
         """执行 AI 用例"""
         ai_case = self.get_object()
+        auto_compile_testcase = request.data.get('auto_compile_testcase', True)
+        if isinstance(auto_compile_testcase, str):
+            auto_compile_testcase = auto_compile_testcase.lower() not in ('0', 'false', 'no')
 
         # 创建执行记录
         execution_record = AIExecutionRecord.objects.create(
@@ -3120,6 +3265,17 @@ class AICaseViewSet(viewsets.ModelViewSet):
 
                 # 处理GIF录制文件
                 self._process_gif_recording(execution_record, history)
+
+                # Phase 0: 结构化 action_trace + 自动固化回归用例
+                try:
+                    from .views_pipeline import persist_ai_action_trace
+                    persist_ai_action_trace(
+                        execution_record,
+                        history,
+                        auto_compile=bool(auto_compile_testcase),
+                    )
+                except Exception as e:
+                    logger.warning(f'persist action_trace failed: {e}')
 
                 safe_save(execution_record)
 
@@ -3450,6 +3606,9 @@ class AIExecutionRecordViewSet(viewsets.ModelViewSet):
         task_description = request.data.get('task_description')
         execution_mode = request.data.get('execution_mode', 'text')  # 默认文本模式
         enable_gif = request.data.get('enable_gif', True)  # GIF录制开关，默认开启
+        auto_compile_testcase = request.data.get('auto_compile_testcase', True)
+        if isinstance(auto_compile_testcase, str):
+            auto_compile_testcase = auto_compile_testcase.lower() not in ('0', 'false', 'no')
 
         if not task_description:
             return Response({'error': '缺少任务描述参数'}, status=status.HTTP_400_BAD_REQUEST)
@@ -3664,6 +3823,17 @@ class AIExecutionRecordViewSet(viewsets.ModelViewSet):
 
                 # 处理GIF录制文件
                 self._process_gif_recording(execution_record, history)
+
+                # Phase 0: 结构化 action_trace + 自动固化回归用例
+                try:
+                    from .views_pipeline import persist_ai_action_trace
+                    persist_ai_action_trace(
+                        execution_record,
+                        history,
+                        auto_compile=bool(auto_compile_testcase),
+                    )
+                except Exception as e:
+                    logger.warning(f'persist action_trace failed: {e}')
 
                 safe_save(execution_record)
 
@@ -3902,6 +4072,21 @@ class AIExecutionRecordViewSet(viewsets.ModelViewSet):
                 'success': False,
                 'error': str(e)
             }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+    @action(detail=True, methods=['post'], url_path='compile-to-testcase')
+    def compile_to_testcase(self, request, pk=None):
+        from .views_pipeline import compile_ai_execution_to_testcase
+        return compile_ai_execution_to_testcase(self.get_object(), request)
+
+    @action(detail=True, methods=['post'], url_path='sync-elements')
+    def sync_elements(self, request, pk=None):
+        from .views_pipeline import sync_ai_execution_elements
+        return sync_ai_execution_elements(self.get_object(), request)
+
+    @action(detail=True, methods=['post'], url_path='diagnose')
+    def diagnose(self, request, pk=None):
+        from .views_pipeline import diagnose_ai_execution
+        return diagnose_ai_execution(self.get_object(), request)
 
 
 class UiDashboardViewSet(viewsets.ViewSet):

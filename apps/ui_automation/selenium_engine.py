@@ -429,6 +429,11 @@ class SeleniumTestEngine:
         try:
             # wait和screenshot操作不需要元素定位器
             if action_type == 'wait':
+                if step.input_value and str(step.input_value).strip().startswith(('http://', 'https://')):
+                    self.driver.get(str(step.input_value).strip())
+                    execution_time = round(time.time() - start_time, 2)
+                    log = f"✓ 导航到 {step.input_value} 完成 - 耗时 {execution_time}秒"
+                    return True, log, None
                 wait_seconds = step.wait_time / 1000 if step.wait_time else 1
                 time.sleep(wait_seconds)
                 execution_time = round(time.time() - start_time, 2)
@@ -443,6 +448,22 @@ class SeleniumTestEngine:
                 log += f"  - 截图范围: 整个页面\n"
                 log += f"  - 执行时间: {execution_time}秒"
                 return True, log, screenshot_base64
+
+            elif action_type == 'scroll' and not (element_data or {}).get('locator_value'):
+                coords = None
+                if resolved_input_value and ',' in str(resolved_input_value):
+                    try:
+                        parts = str(resolved_input_value).split(',', 1)
+                        coords = (int(float(parts[0].strip())), int(float(parts[1].strip())))
+                    except (TypeError, ValueError):
+                        coords = None
+                if coords:
+                    x, y = coords
+                    self.driver.execute_script('window.scrollTo(arguments[0], arguments[1]);', x, y)
+                    execution_time = round(time.time() - start_time, 2)
+                    log = f"✓ 页面滚动到 ({x}, {y}) 成功 - 耗时 {execution_time}秒"
+                    return True, log, None
+                return False, f"✗ 页面滚动失败: 缺少坐标 input_value={resolved_input_value}", None
 
             elif action_type == 'switchTab':
                 # 切换标签页
@@ -506,8 +527,20 @@ class SeleniumTestEngine:
                 return True, log, None
 
             # 其他操作需要元素定位器
-            locator_strategy = element_data.get('locator_strategy', 'css')
-            locator_value = element_data.get('locator_value', '')
+            locator_candidates = []
+            primary_strategy = element_data.get('locator_strategy', 'css')
+            primary_value = element_data.get('locator_value', '')
+            if primary_value:
+                locator_candidates.append({'strategy': primary_strategy, 'value': primary_value})
+            for backup in element_data.get('backup_locators') or []:
+                if isinstance(backup, dict) and backup.get('value'):
+                    locator_candidates.append({
+                        'strategy': backup.get('strategy') or 'css',
+                        'value': backup['value'],
+                    })
+            if not locator_candidates:
+                locator_candidates.append({'strategy': primary_strategy, 'value': primary_value})
+
             element_name = element_data.get('name', '未知元素')
 
             # 获取强制操作选项
@@ -522,8 +555,27 @@ class SeleniumTestEngine:
             else:
                 timeout_seconds = 5
 
-            # 获取定位器
-            by_type, by_value = self._get_locator(locator_strategy, locator_value)
+            # 获取定位器（支持备用定位器回退）
+            last_err = None
+            by_type = by_value = None
+            locator_strategy = primary_strategy
+            locator_value = primary_value
+            for candidate in locator_candidates:
+                locator_strategy = candidate['strategy']
+                locator_value = candidate['value']
+                try:
+                    by_type, by_value = self._get_locator(locator_strategy, locator_value)
+                    # quick probe
+                    WebDriverWait(self.driver, min(timeout_seconds, 3)).until(
+                        EC.presence_of_element_located((by_type, by_value))
+                    )
+                    break
+                except Exception as exc:
+                    last_err = exc
+                    by_type = by_value = None
+                    continue
+            if by_type is None:
+                raise last_err or Exception(f'无法定位元素: {element_name}')
 
             # 根据操作类型选择合适的等待条件
             wait = WebDriverWait(self.driver, timeout_seconds)
@@ -749,7 +801,26 @@ class SeleniumTestEngine:
                 return True, log, None
 
             elif action_type == 'scroll':
-                # 滚动到元素
+                # 滚动到元素 / 或容器坐标
+                coords = None
+                if resolved_input_value and ',' in str(resolved_input_value):
+                    try:
+                        parts = str(resolved_input_value).split(',', 1)
+                        coords = (int(float(parts[0].strip())), int(float(parts[1].strip())))
+                    except (TypeError, ValueError):
+                        coords = None
+                if coords:
+                    x, y = coords
+                    self.driver.execute_script(
+                        'arguments[0].scrollLeft = arguments[1]; arguments[0].scrollTop = arguments[2];',
+                        element, x, y,
+                    )
+                    time.sleep(0.2)
+                    execution_time = round(time.time() - start_time, 2)
+                    log = f"✓ 容器 '{element_name}' 滚动到 ({x}, {y}) 成功\n"
+                    log += f"  - 定位器: {locator_strategy}={locator_value}\n"
+                    log += f"  - 执行时间: {execution_time}秒"
+                    return True, log, None
                 self.driver.execute_script("arguments[0].scrollIntoView(true);", element)
                 time.sleep(0.3)  # 等待滚动完成
                 execution_time = round(time.time() - start_time, 2)

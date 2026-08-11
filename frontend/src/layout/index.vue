@@ -132,6 +132,10 @@
               <el-icon><Document /></el-icon>
               <span>{{ $t('menu.caseManagement') }}</span>
             </el-menu-item>
+            <el-menu-item index="/ui-automation/recording">
+              <el-icon><VideoCamera /></el-icon>
+              <span>操作录制</span>
+            </el-menu-item>
             <el-menu-item index="/ui-automation/scripts-enhanced">
               <el-icon><Edit /></el-icon>
               <span>{{ $t('menu.scriptGeneration') }}</span>
@@ -183,6 +187,10 @@
             <el-menu-item index="/app-automation/elements">
               <el-icon><Aim /></el-icon>
               <span>{{ $t('menu.elementManagement') }}</span>
+            </el-menu-item>
+            <el-menu-item index="/app-automation/recording">
+              <el-icon><VideoCamera /></el-icon>
+              <span>操作录制</span>
             </el-menu-item>
             <el-menu-item index="/app-automation/scene-builder">
               <el-icon><Connection /></el-icon>
@@ -342,7 +350,7 @@ import { useAppStore } from '@/stores/app'
 import { ElMessage } from 'element-plus'
 import { useI18n } from 'vue-i18n'
 import {
-  Monitor, Folder, Document, Flag, Check, Collection, VideoPlay,
+  Monitor, Folder, Document, Flag, Check, Collection, VideoPlay, VideoCamera,
   DataAnalysis, ChatDotRound, DocumentCopy, Link, MagicStick,
   Odometer, Timer, Setting, AlarmClock, Bell, Aim, Edit, Cpu, ArrowDown, Cellphone, Connection, FolderOpened, Tickets, Plus
 } from '@element-plus/icons-vue'
@@ -431,6 +439,7 @@ const breadcrumbTitle = computed(() => {
     '/ui-automation/projects': t('menu.projectManagement'),
     '/ui-automation/elements-enhanced': t('menu.elementManagement'),
     '/ui-automation/test-cases': t('menu.caseManagement'),
+    '/ui-automation/recording': '操作录制',
     '/ui-automation/scripts-enhanced': t('menu.scriptGeneration'),
     '/ui-automation/scripts': t('menu.scriptList'),
     '/ui-automation/suites': t('menu.suiteManagement'),
@@ -445,6 +454,7 @@ const breadcrumbTitle = computed(() => {
     '/app-automation/devices': t('menu.deviceManagement'),
     '/app-automation/packages': t('menu.packageManagement'),
     '/app-automation/elements': t('menu.elementManagement'),
+    '/app-automation/recording': '操作录制',
     '/app-automation/scene-builder': t('menu.caseDesign'),
     '/app-automation/test-cases': t('menu.testCases'),
     '/app-automation/test-suites': t('menu.suiteManagement'),

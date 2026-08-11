@@ -302,7 +302,8 @@ SPECTACULAR_SETTINGS = {
 }
 
 # Redis URL (used across celery, channels, and SMS verification)
-REDIS_URL = config('REDIS_URL', default='redis://:1234@127.0.0.1:6379/0')
+# 勿在默认值中写死生产密码；本地无密码 Redis 用 redis://127.0.0.1:6379/0
+REDIS_URL = config('REDIS_URL', default='redis://127.0.0.1:6379/0')
 
 # Celery Configuration
 CELERY_BROKER_URL = REDIS_URL
@@ -310,14 +311,69 @@ CELERY_RESULT_BACKEND = REDIS_URL
 CELERY_BROKER_CONNECTION_RETRY_ON_STARTUP = True
 
 # Channels Configuration
-CHANNEL_LAYERS = {
-    'default': {
-        'BACKEND': 'channels_redis.core.RedisChannelLayer',
-        'CONFIG': {
-            'hosts': [REDIS_URL],
+# channels_redis 需要 Redis >= 5（BZPOPMIN）。本机若是 Redis 3.x 则自动回退内存层，
+# 否则 WebSocket 会连上立刻断开并不断重试。
+def _build_channel_layers():
+    import logging
+    _log = logging.getLogger('backend.channels')
+    force_memory = config('CHANNELS_INMEMORY', default=False, cast=bool)
+    require_redis = config('CHANNELS_REQUIRE_REDIS', default=False, cast=bool)
+    if force_memory:
+        msg = '[channels] CHANNELS_INMEMORY=1，使用 InMemoryChannelLayer（多进程下 WebSocket 不可用）'
+        print(msg)
+        _log.warning(msg)
+        return {
+            'default': {
+                'BACKEND': 'channels.layers.InMemoryChannelLayer',
+            }
+        }
+    try:
+        import redis
+        client = redis.from_url(REDIS_URL, socket_connect_timeout=1, socket_timeout=1)
+        ver = str(client.info('server').get('redis_version') or '0')
+        major = int(ver.split('.')[0])
+        client.close()
+        if major < 5:
+            msg = (
+                f'[channels] Redis {ver} 过旧（需要>=5），已降级 InMemoryChannelLayer；'
+                f'多 worker 下 APP 投屏 WebSocket 会失效。请升级 Redis 或设 CHANNELS_INMEMORY=1 明示。'
+            )
+            print(msg)
+            _log.warning(msg)
+            if require_redis:
+                raise RuntimeError(msg)
+            return {
+                'default': {
+                    'BACKEND': 'channels.layers.InMemoryChannelLayer',
+                }
+            }
+    except RuntimeError:
+        raise
+    except Exception as exc:
+        msg = (
+            f'[channels] Redis 不可用 ({exc})，已降级 InMemoryChannelLayer；'
+            f'多进程 Daphne 下实时投屏不可用。生产请配置可用 Redis>=5，或设 CHANNELS_REQUIRE_REDIS=1 强制失败。'
+        )
+        print(msg)
+        _log.warning(msg)
+        if require_redis:
+            raise RuntimeError(msg) from exc
+        return {
+            'default': {
+                'BACKEND': 'channels.layers.InMemoryChannelLayer',
+            }
+        }
+    return {
+        'default': {
+            'BACKEND': 'channels_redis.core.RedisChannelLayer',
+            'CONFIG': {
+                'hosts': [REDIS_URL],
+            },
         },
-    },
-}
+    }
+
+
+CHANNEL_LAYERS = _build_channel_layers()
 
 # SMS Configuration (阿里云短信)
 SMS_ACCESS_KEY_ID = config('SMS_ACCESS_KEY_ID', default='')

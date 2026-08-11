@@ -27,9 +27,9 @@
           {{ formatDate(scope.row.created_at) }}
         </template>
       </el-table-column>
-      <el-table-column :label="$t('apiTesting.component.environmentTable.operation')" width="250" fixed="right">
+      <el-table-column :label="$t('apiTesting.component.environmentTable.operation')" width="280" fixed="right">
         <template #default="scope">
-          <el-button-group>
+          <div class="table-actions">
             <el-button
               v-if="!scope.row.is_active"
               link
@@ -51,7 +51,7 @@
             <el-button link type="danger" @click="$emit('delete', scope.row)" size="small">
               {{ $t('apiTesting.component.environmentTable.delete') }}
             </el-button>
-          </el-button-group>
+          </div>
         </template>
       </el-table-column>
     </el-table>

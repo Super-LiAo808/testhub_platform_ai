@@ -44,17 +44,19 @@
           {{ formatDate(scope.row.executed_at) }}
         </template>
       </el-table-column>
-      <el-table-column :label="$t('apiTesting.common.operation')" width="200" fixed="right">
+      <el-table-column :label="$t('apiTesting.common.operation')" width="180" fixed="right">
         <template #default="scope">
-          <el-button link type="primary" @click="$emit('view-detail', scope.row)" size="small">
-            {{ $t('apiTesting.component.historyTable.viewDetail') }}
-          </el-button>
-          <el-button link type="primary" @click="$emit('retry-request', scope.row)" size="small">
-            {{ $t('apiTesting.component.historyTable.retryRequest') }}
-          </el-button>
-          <el-button link type="danger" @click="$emit('delete-item', scope.row)" size="small">
-            {{ $t('apiTesting.component.historyTable.delete') }}
-          </el-button>
+          <div class="table-actions">
+            <el-button link type="primary" @click="$emit('view-detail', scope.row)" size="small">
+              {{ $t('apiTesting.component.historyTable.viewDetail') }}
+            </el-button>
+            <el-button link type="primary" @click="$emit('retry-request', scope.row)" size="small">
+              {{ $t('apiTesting.component.historyTable.retryRequest') }}
+            </el-button>
+            <el-button link type="danger" @click="$emit('delete-item', scope.row)" size="small">
+              {{ $t('apiTesting.component.historyTable.delete') }}
+            </el-button>
+          </div>
         </template>
       </el-table-column>
     </el-table>

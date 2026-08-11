@@ -18,6 +18,7 @@ from .views import (
     AppNotificationLogViewSet,
     AppTestExecutionViewSet,
     AppDashboardViewSet,
+    AppRecordingSessionViewSet,
 )
 
 router = DefaultRouter()
@@ -37,6 +38,7 @@ router.register(r'test-suites', AppTestSuiteViewSet, basename='app-test-suite')
 router.register(r'scheduled-tasks', AppScheduledTaskViewSet, basename='app-scheduled-task')
 router.register(r'notification-logs', AppNotificationLogViewSet, basename='app-notification-log')
 router.register(r'executions', AppTestExecutionViewSet, basename='app-execution')
+router.register(r'recording-sessions', AppRecordingSessionViewSet, basename='app-recording-session')
 
 urlpatterns = [
     path('', include(router.urls)),

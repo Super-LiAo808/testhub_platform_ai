@@ -69,10 +69,28 @@ class AIExecutionReportGenerator:
                 'duration': self.record.duration,
                 'total_tasks': len(planned_tasks),
             },
-            'gif_path': self.record.gif_path  # 添加GIF路径
+            'gif_path': self.record.gif_path,  # 添加GIF路径
+            'derived_test_case_id': self.record.derived_test_case_id,
+            'derived_test_case_name': (
+                self.record.derived_test_case.name if self.record.derived_test_case_id else None
+            ),
+            'project_id': self.record.project_id,
+            'synced_element_hint': self._count_ai_elements(),
         }
 
         return report
+
+    def _count_ai_elements(self) -> int:
+        if not self.record.project_id:
+            return 0
+        try:
+            from apps.ui_automation.models import Element
+            return Element.objects.filter(
+                project_id=self.record.project_id,
+                discovery_source='ai_discovered',
+            ).count()
+        except Exception:
+            return 0
 
     def _calculate_task_statistics(self, planned_tasks: List[Dict]) -> Dict[str, Any]:
         """

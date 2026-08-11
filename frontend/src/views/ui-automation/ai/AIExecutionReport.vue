@@ -34,7 +34,35 @@
           <el-icon><Download /></el-icon>
           {{ $t('uiAutomation.ai.executionReport.exportReport') }}
         </el-button>
+        <el-button type="primary" size="small" :loading="compiling" @click="compileToTestCase">
+          {{ compiledCaseId ? `已固化 #${compiledCaseId}` : '导出为回归用例' }}
+        </el-button>
+        <el-button size="small" :loading="syncingElements" @click="syncElements">
+          同步元素到元素管理
+        </el-button>
+        <el-button
+          v-if="reportData.project_id"
+          size="small"
+          type="success"
+          plain
+          @click="goElementManager"
+        >
+          元素管理{{ syncedElementCount != null ? `（AI发现 ${syncedElementCount}）` : '' }}
+        </el-button>
+        <el-button size="small" :disabled="!compiledCaseId" :loading="exportingScript" @click="exportScript">
+          导出源码
+        </el-button>
+        <el-button type="warning" size="small" :loading="diagnosing" @click="runDiagnose">
+          AI 诊断失败
+        </el-button>
       </div>
+
+      <FailureDiagnosisPanel
+        v-model="showDiagnosis"
+        :diagnosis="diagnosis"
+        :proposals="proposals"
+        :loading="diagnosing"
+      />
 
       <!-- 摘要报告 -->
       <div v-if="currentReportType === 'summary'" class="report-content">
@@ -249,13 +277,16 @@
 
 <script setup>
 import { ref, watch, nextTick, computed } from 'vue'
+import { useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { Loading, VideoPlay, Download } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
 import * as echarts from 'echarts'
-import { getAIExecutionReport, exportAIExecutionReportPDF } from '@/api/ui_automation'
+import { getAIExecutionReport, exportAIExecutionReportPDF, compileAIExecutionToTestCase, exportTestCaseScript, diagnoseAIExecution, syncAIExecutionElements } from '@/api/ui_automation'
+import FailureDiagnosisPanel from './FailureDiagnosisPanel.vue'
 
 const { t } = useI18n()
+const router = useRouter()
 
 const props = defineProps({
   modelValue: {
@@ -279,6 +310,15 @@ const pieChartRef = ref(null)
 const barChartRef = ref(null)
 let pieChart = null
 let barChart = null
+const compiling = ref(false)
+const syncingElements = ref(false)
+const syncedElementCount = ref(null)
+const exportingScript = ref(false)
+const diagnosing = ref(false)
+const compiledCaseId = ref(null)
+const showDiagnosis = ref(false)
+const diagnosis = ref(null)
+const proposals = ref([])
 
 // 报告类型显示名称
 const reportTypeDisplay = computed(() => {
@@ -340,6 +380,8 @@ const loadReport = async (reportType = 'summary') => {
     console.log('API Response:', response.data)
     if (response.data.success) {
       reportData.value = response.data.data
+      compiledCaseId.value = reportData.value?.derived_test_case_id || compiledCaseId.value
+      syncedElementCount.value = reportData.value?.synced_element_hint ?? syncedElementCount.value
       console.log('Report Data:', reportData.value)
       await nextTick()
       // 等待DOM更新后再初始化图表
@@ -562,6 +604,73 @@ const exportReport = async () => {
   } catch (error) {
     console.error('导出报告失败:', error)
     ElMessage.error(error.response?.data?.error || t('uiAutomation.ai.executionReport.messages.exportFailed'))
+  }
+}
+
+const compileToTestCase = async () => {
+  if (!props.recordId) return
+  compiling.value = true
+  try {
+    const res = await compileAIExecutionToTestCase(props.recordId, { commit: true })
+    compiledCaseId.value = res.data?.test_case?.id || null
+    ElMessage.success(compiledCaseId.value ? `已固化为回归用例 #${compiledCaseId.value}` : '编译完成（预览）')
+  } catch (e) {
+    ElMessage.error(e.response?.data?.error || e.message || '固化失败')
+  } finally {
+    compiling.value = false
+  }
+}
+
+const syncElements = async () => {
+  if (!props.recordId) return
+  syncingElements.value = true
+  try {
+    const res = await syncAIExecutionElements(props.recordId)
+    syncedElementCount.value = res.data?.total ?? syncedElementCount.value
+    ElMessage.success(`已同步 ${res.data?.total || 0} 个元素（新建 ${res.data?.created || 0}）`)
+  } catch (e) {
+    ElMessage.error(e.response?.data?.error || e.message || '同步元素失败')
+  } finally {
+    syncingElements.value = false
+  }
+}
+
+const goElementManager = () => {
+  const pid = reportData.value?.project_id
+  router.push({
+    path: '/ui-automation/elements-enhanced',
+    query: pid ? { project: pid, discovery_source: 'ai_discovered' } : {}
+  })
+}
+
+const exportScript = async () => {
+  if (!compiledCaseId.value) {
+    ElMessage.warning('请先导出为回归用例')
+    return
+  }
+  exportingScript.value = true
+  try {
+    const res = await exportTestCaseScript(compiledCaseId.value, { engine: 'playwright' })
+    ElMessage.success(`源码脚本已生成 #${res.data?.id}`)
+  } catch (e) {
+    ElMessage.error(e.response?.data?.error || e.message || '导出源码失败')
+  } finally {
+    exportingScript.value = false
+  }
+}
+
+const runDiagnose = async () => {
+  if (!props.recordId) return
+  diagnosing.value = true
+  showDiagnosis.value = true
+  try {
+    const res = await diagnoseAIExecution(props.recordId, { use_llm: true })
+    diagnosis.value = res.data?.diagnosis
+    proposals.value = res.data?.proposals || []
+  } catch (e) {
+    ElMessage.error(e.response?.data?.error || e.message || '诊断失败')
+  } finally {
+    diagnosing.value = false
   }
 }
 

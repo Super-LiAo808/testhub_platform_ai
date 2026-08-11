@@ -484,7 +484,9 @@
               <el-table-column prop="example" :label="t('uiAutomation.testCase.example')" min-width="200" show-overflow-tooltip />
               <el-table-column :label="t('uiAutomation.testCase.operation')" width="80" fixed="right">
                 <template #default="{ row }">
-                  <el-button link type="primary" size="small">{{ t('uiAutomation.testCase.insert') }}</el-button>
+                  <div class="table-actions">
+                    <el-button link type="primary" size="small">{{ t('uiAutomation.testCase.insert') }}</el-button>
+                  </div>
                 </template>
               </el-table-column>
             </el-table>

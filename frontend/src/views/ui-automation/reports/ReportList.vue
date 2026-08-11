@@ -65,16 +65,18 @@
             {{ formatDate(row.created_at) }}
           </template>
         </el-table-column>
-        <el-table-column :label="$t('uiAutomation.common.operation')" width="200" fixed="right">
+        <el-table-column :label="$t('uiAutomation.common.operation')" width="160" fixed="right">
           <template #default="{ row }">
-            <el-button link type="primary" size="small" @click="viewReportDetail(row)">
-              <el-icon><Document /></el-icon>
-              {{ $t('uiAutomation.report.viewDetail') }}
-            </el-button>
-            <el-button link type="danger" size="small" @click="deleteReport(row)">
-              <el-icon><Delete /></el-icon>
-              {{ $t('uiAutomation.common.delete') }}
-            </el-button>
+            <div class="table-actions">
+              <el-button link type="primary" size="small" @click="viewReportDetail(row)">
+                <el-icon><Document /></el-icon>
+                {{ $t('uiAutomation.report.viewDetail') }}
+              </el-button>
+              <el-button link type="danger" size="small" @click="deleteReport(row)">
+                <el-icon><Delete /></el-icon>
+                {{ $t('uiAutomation.common.delete') }}
+              </el-button>
+            </div>
           </template>
         </el-table-column>
       </el-table>
@@ -179,13 +181,16 @@
             </el-table-column>
             <el-table-column :label="$t('uiAutomation.common.operation')" width="120" align="center">
               <template #default="{ row }">
-                <el-button
-                  type="primary"
-                  link
-                  @click="viewCaseDetail(row)"
-                >
-                  {{ $t('uiAutomation.report.viewDetail') }}
-                </el-button>
+                <div class="table-actions">
+                  <el-button
+                    type="primary"
+                    link
+                    size="small"
+                    @click="viewCaseDetail(row)"
+                  >
+                    {{ $t('uiAutomation.report.viewDetail') }}
+                  </el-button>
+                </div>
               </template>
             </el-table-column>
           </el-table>

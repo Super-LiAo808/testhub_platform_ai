@@ -6,10 +6,97 @@ from celery import shared_task
 from django.utils import timezone
 import logging
 import os
+import threading
 from asgiref.sync import async_to_sync
 from channels.layers import get_channel_layer
+from django.db import close_old_connections
 
 logger = logging.getLogger(__name__)
+
+
+def celery_workers_available(timeout: float = 0.6) -> bool:
+    """探测是否有可用的 Celery worker；不可用时走本地线程兜底。"""
+    try:
+        from django.conf import settings
+        if getattr(settings, 'APP_AUTOMATION_FORCE_THREAD', False):
+            return False
+        if getattr(settings, 'CELERY_TASK_ALWAYS_EAGER', False):
+            return True
+        from backend.celery import app
+        insp = app.control.inspect(timeout=timeout)
+        ping = insp.ping() if insp else None
+        return bool(ping)
+    except Exception as exc:
+        logger.debug('celery worker probe failed: %s', exc)
+        return False
+
+
+def dispatch_app_test_execution(execution_id, package_name: str = None, scheduled_task_id: int = None) -> str:
+    """提交单用例执行：优先 Celery，无 worker 时用后台线程（与 UI 自动化本地模式一致）。"""
+    if celery_workers_available():
+        async_result = execute_app_test_task.delay(
+            execution_id, package_name=package_name, scheduled_task_id=scheduled_task_id
+        )
+        logger.info('APP 用例走 Celery: execution_id=%s task_id=%s', execution_id, async_result.id)
+        return async_result.id
+
+    task_id = f'thread-{execution_id}'
+
+    def _runner():
+        os.environ['DJANGO_ALLOW_ASYNC_UNSAFE'] = 'true'
+        close_old_connections()
+        try:
+            execute_app_test_task.run(
+                execution_id, package_name=package_name, scheduled_task_id=scheduled_task_id
+            )
+        except Exception:
+            logger.exception('thread execute_app_test_task failed: execution_id=%s', execution_id)
+        finally:
+            close_old_connections()
+
+    threading.Thread(target=_runner, name=f'app-exec-{execution_id}', daemon=True).start()
+    logger.warning(
+        '未检测到 Celery worker，已用本地线程执行 APP 用例: execution_id=%s task_id=%s',
+        execution_id, task_id,
+    )
+    return task_id
+
+
+def dispatch_app_suite_execution(suite_id, execution_ids, package_name: str = None, scheduled_task_id: int = None) -> str:
+    """提交套件执行：优先 Celery，无 worker 时用后台线程。"""
+    if celery_workers_available():
+        async_result = execute_app_suite_task.delay(
+            suite_id=suite_id,
+            execution_ids=execution_ids,
+            package_name=package_name,
+            scheduled_task_id=scheduled_task_id,
+        )
+        logger.info('APP 套件走 Celery: suite_id=%s task_id=%s', suite_id, async_result.id)
+        return async_result.id
+
+    task_id = f'thread-suite-{suite_id}-{execution_ids[0] if execution_ids else 0}'
+
+    def _runner():
+        os.environ['DJANGO_ALLOW_ASYNC_UNSAFE'] = 'true'
+        close_old_connections()
+        try:
+            execute_app_suite_task.run(
+                suite_id=suite_id,
+                execution_ids=execution_ids,
+                package_name=package_name,
+                scheduled_task_id=scheduled_task_id,
+            )
+        except Exception:
+            logger.exception('thread execute_app_suite_task failed: suite_id=%s', suite_id)
+        finally:
+            close_old_connections()
+
+    threading.Thread(target=_runner, name=f'app-suite-{suite_id}', daemon=True).start()
+    logger.warning(
+        '未检测到 Celery worker，已用本地线程执行 APP 套件: suite_id=%s task_id=%s',
+        suite_id, task_id,
+    )
+    return task_id
 
 
 def send_scheduled_task_notification(task_id, success):

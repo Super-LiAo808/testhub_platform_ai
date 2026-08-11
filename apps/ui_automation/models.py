@@ -130,6 +130,21 @@ class Element(models.Model):
     last_validated = models.DateTimeField(null=True, blank=True, verbose_name='最后验证时间')
     validation_status = models.CharField(max_length=20, choices=VALIDATION_STATUS_CHOICES, default='UNKNOWN', verbose_name='验证状态')
     validation_message = models.TextField(blank=True, verbose_name='验证消息')
+    last_healed_at = models.DateTimeField(null=True, blank=True, verbose_name='最后自愈时间')
+    heal_count = models.IntegerField(default=0, verbose_name='自愈次数')
+    DISCOVERY_SOURCE_CHOICES = [
+        ('manual', '手工创建'),
+        ('recorded', '操作录制'),
+        ('ai_discovered', 'AI发现'),
+        ('page_scan', '页面扫描'),
+    ]
+    discovery_source = models.CharField(
+        max_length=20,
+        choices=DISCOVERY_SOURCE_CHOICES,
+        default='manual',
+        blank=True,
+        verbose_name='发现来源',
+    )
 
     # 基础字段
     created_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True, verbose_name='创建人')
@@ -172,6 +187,57 @@ class Element(models.Model):
                 })
 
         return locators
+
+
+class PageElementScanJob(models.Model):
+    """页面元素扫描异步任务。"""
+    STATUS_CHOICES = [
+        ('pending', '排队中'),
+        ('running', '扫描中'),
+        ('success', '成功'),
+        ('failed', '失败'),
+        ('cancelled', '已取消'),
+    ]
+
+    project = models.ForeignKey(
+        UiProject, on_delete=models.CASCADE,
+        related_name='page_scan_jobs', verbose_name='所属项目',
+    )
+    target_group = models.ForeignKey(
+        ElementGroup, on_delete=models.SET_NULL,
+        null=True, blank=True,
+        related_name='page_scan_jobs', verbose_name='目标分组',
+    )
+    url = models.CharField(max_length=2000, verbose_name='扫描 URL')
+    max_elements = models.PositiveIntegerField(default=200, verbose_name='最大元素数')
+    headless = models.BooleanField(default=True, verbose_name='无头模式')
+    status = models.CharField(
+        max_length=20, choices=STATUS_CHOICES, default='pending', verbose_name='状态',
+    )
+    progress = models.PositiveSmallIntegerField(default=0, verbose_name='进度百分比')
+    message = models.CharField(max_length=500, blank=True, default='', verbose_name='状态说明')
+    error_message = models.TextField(blank=True, default='', verbose_name='错误信息')
+    result = models.JSONField(default=dict, blank=True, verbose_name='扫描结果')
+    created_by = models.ForeignKey(
+        User, on_delete=models.SET_NULL, null=True, blank=True, verbose_name='创建人',
+    )
+    started_at = models.DateTimeField(null=True, blank=True, verbose_name='开始时间')
+    finished_at = models.DateTimeField(null=True, blank=True, verbose_name='结束时间')
+    created_at = models.DateTimeField(auto_now_add=True, verbose_name='创建时间')
+    updated_at = models.DateTimeField(auto_now=True, verbose_name='更新时间')
+
+    class Meta:
+        db_table = 'ui_page_element_scan_jobs'
+        verbose_name = '页面元素扫描任务'
+        verbose_name_plural = '页面元素扫描任务'
+        ordering = ['-created_at']
+        indexes = [
+            models.Index(fields=['project', 'status']),
+            models.Index(fields=['status', 'created_at']),
+        ]
+
+    def __str__(self):
+        return f'ScanJob#{self.id} {self.status} {self.url[:60]}'
 
 
 class TestScript(models.Model):
@@ -587,11 +653,18 @@ class TestCase(models.Model):
         ('low', '低'),
     ]
 
+    SOURCE_CHOICES = [
+        ('manual', '手工创建'),
+        ('recorded', '操作录制'),
+        ('ai_compiled', 'AI固化'),
+    ]
+
     name = models.CharField(max_length=200, verbose_name='用例名称')
     description = models.TextField(blank=True, verbose_name='用例描述')
     project = models.ForeignKey(UiProject, on_delete=models.CASCADE, related_name='test_cases', verbose_name='所属项目')
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='draft', verbose_name='状态')
     priority = models.CharField(max_length=10, choices=PRIORITY_CHOICES, default='medium', verbose_name='优先级')
+    source = models.CharField(max_length=20, choices=SOURCE_CHOICES, default='manual', verbose_name='来源')
     created_by = models.ForeignKey(User, on_delete=models.CASCADE, related_name='created_test_cases', verbose_name='创建人')
     created_at = models.DateTimeField(auto_now_add=True, verbose_name='创建时间')
     updated_at = models.DateTimeField(auto_now=True, verbose_name='更新时间')
@@ -1005,10 +1078,22 @@ class UiTaskNotificationSetting(models.Model):
 
 class AICase(models.Model):
     """AI测试用例"""
+    MODE_CHOICES = [
+        ('ai_explore', 'AI探索执行'),
+        ('script_replay', '脚本回放'),
+    ]
+
     project = models.ForeignKey(UiProject, on_delete=models.CASCADE, null=True, blank=True, verbose_name='所属项目')
     name = models.CharField(max_length=200, verbose_name='用例名称')
     description = models.TextField(blank=True, null=True, verbose_name='描述')
     task_description = models.TextField(verbose_name='任务描述', help_text='自然语言任务描述')
+    linked_test_case = models.ForeignKey(
+        'TestCase', on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='linked_ai_cases', verbose_name='关联回归用例'
+    )
+    preferred_mode = models.CharField(
+        max_length=20, choices=MODE_CHOICES, default='ai_explore', verbose_name='首选执行模式'
+    )
     created_at = models.DateTimeField(auto_now_add=True, verbose_name='创建时间')
     updated_at = models.DateTimeField(auto_now=True, verbose_name='更新时间')
     created_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, verbose_name='创建者')
@@ -1044,7 +1129,12 @@ class AIExecutionRecord(models.Model):
     duration = models.FloatField(null=True, blank=True, verbose_name='执行时长(秒)')
     logs = models.TextField(blank=True, default='', verbose_name='执行日志')
     steps_completed = models.JSONField(default=list, verbose_name='已完成步骤')
-    planned_tasks = models.JSONField(default=list, verbose_name='规划任务') # 规划的任务列表 [{'id': 1, 'description': '...', 'status': 'pending'}]
+    planned_tasks = models.JSONField(default=list, verbose_name='规划任务')  # [{'id': 1, 'description': '...', 'status': 'pending'}]
+    action_trace = models.JSONField(default=list, blank=True, verbose_name='结构化操作轨迹')
+    derived_test_case = models.ForeignKey(
+        'TestCase', on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='derived_from_ai_executions', verbose_name='固化回归用例'
+    )
     executed_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, verbose_name='执行人')
     gif_path = models.CharField(max_length=500, null=True, blank=True, verbose_name='GIF录制路径')
     screenshots_sequence = models.JSONField(default=list, verbose_name='截图序列')
@@ -1057,3 +1147,160 @@ class AIExecutionRecord(models.Model):
 
     def __str__(self):
         return f"{self.case_name} - {self.get_status_display()}"
+
+
+class UIActionTrace(models.Model):
+    """规范化操作轨迹（录制或 AI Agent）"""
+    SOURCE_CHOICES = [
+        ('recording', '操作录制'),
+        ('ai_agent', 'AI Agent'),
+    ]
+
+    project = models.ForeignKey(
+        UiProject, on_delete=models.CASCADE, null=True, blank=True,
+        related_name='action_traces', verbose_name='所属项目'
+    )
+    source = models.CharField(max_length=20, choices=SOURCE_CHOICES, verbose_name='来源')
+    raw_events = models.JSONField(default=list, blank=True, verbose_name='原始事件')
+    normalized_actions = models.JSONField(default=list, blank=True, verbose_name='规范化动作')
+    ai_execution = models.ForeignKey(
+        AIExecutionRecord, on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='action_traces', verbose_name='关联AI执行'
+    )
+    created_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True, verbose_name='创建人')
+    created_at = models.DateTimeField(auto_now_add=True, verbose_name='创建时间')
+    updated_at = models.DateTimeField(auto_now=True, verbose_name='更新时间')
+
+    class Meta:
+        db_table = 'ui_action_traces'
+        verbose_name = 'UI操作轨迹'
+        verbose_name_plural = 'UI操作轨迹'
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return f'{self.get_source_display()}#{self.id}'
+
+
+class RecordingSession(models.Model):
+    """浏览器操作录制会话"""
+    STATUS_CHOICES = [
+        ('idle', '空闲'),
+        ('recording', '录制中'),
+        ('stopped', '已停止'),
+        ('failed', '失败'),
+    ]
+
+    project = models.ForeignKey(
+        UiProject, on_delete=models.CASCADE, related_name='recording_sessions', verbose_name='所属项目'
+    )
+    name = models.CharField(max_length=200, blank=True, default='', verbose_name='会话名称')
+    start_url = models.URLField(blank=True, default='', verbose_name='起始URL')
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='idle', verbose_name='状态')
+    action_trace = models.ForeignKey(
+        UIActionTrace, on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='recording_sessions', verbose_name='操作轨迹'
+    )
+    error_message = models.TextField(blank=True, default='', verbose_name='错误信息')
+    created_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True, verbose_name='创建人')
+    started_at = models.DateTimeField(null=True, blank=True, verbose_name='开始时间')
+    stopped_at = models.DateTimeField(null=True, blank=True, verbose_name='结束时间')
+    created_at = models.DateTimeField(auto_now_add=True, verbose_name='创建时间')
+    updated_at = models.DateTimeField(auto_now=True, verbose_name='更新时间')
+
+    class Meta:
+        db_table = 'ui_recording_sessions'
+        verbose_name = '录制会话'
+        verbose_name_plural = '录制会话'
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return self.name or f'Recording#{self.id}'
+
+
+class FailureDiagnosis(models.Model):
+    """失败诊断结果"""
+    EXECUTION_TYPE_CHOICES = [
+        ('ai', 'AI执行'),
+        ('testcase', '用例执行'),
+    ]
+    CATEGORY_CHOICES = [
+        ('locator_break', '定位失效'),
+        ('timing', '等待/时序'),
+        ('env', '环境问题'),
+        ('flaky', '不稳定'),
+        ('script_bug', '脚本问题'),
+        ('product_bug', '产品缺陷'),
+        ('unknown', '未知'),
+    ]
+
+    execution_type = models.CharField(max_length=20, choices=EXECUTION_TYPE_CHOICES, verbose_name='执行类型')
+    execution_id = models.IntegerField(verbose_name='执行记录ID')
+    project = models.ForeignKey(
+        UiProject, on_delete=models.CASCADE, null=True, blank=True,
+        related_name='failure_diagnoses', verbose_name='所属项目'
+    )
+    category = models.CharField(max_length=30, choices=CATEGORY_CHOICES, default='unknown', verbose_name='分类')
+    confidence = models.FloatField(default=0.0, verbose_name='置信度')
+    summary = models.TextField(blank=True, default='', verbose_name='摘要')
+    evidence = models.JSONField(default=dict, blank=True, verbose_name='证据')
+    suggested_fix = models.JSONField(default=dict, blank=True, verbose_name='修复建议')
+    status = models.CharField(
+        max_length=20,
+        choices=[('proposed', '已建议'), ('applied', '已应用'), ('rejected', '已拒绝')],
+        default='proposed',
+        verbose_name='状态',
+    )
+    created_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True, verbose_name='创建人')
+    created_at = models.DateTimeField(auto_now_add=True, verbose_name='创建时间')
+    updated_at = models.DateTimeField(auto_now=True, verbose_name='更新时间')
+
+    class Meta:
+        db_table = 'ui_failure_diagnoses'
+        verbose_name = '失败诊断'
+        verbose_name_plural = '失败诊断'
+        ordering = ['-created_at']
+        indexes = [
+            models.Index(fields=['execution_type', 'execution_id']),
+        ]
+
+    def __str__(self):
+        return f'{self.execution_type}:{self.execution_id} - {self.category}'
+
+
+class AutoFixProposal(models.Model):
+    """自动修复提案（测试资产可半自动应用；业务代码仅审批）"""
+    TARGET_CHOICES = [
+        ('test_asset', '测试资产'),
+        ('product_code', '业务代码'),
+    ]
+    STATUS_CHOICES = [
+        ('proposed', '待审批'),
+        ('approved', '已批准'),
+        ('rejected', '已拒绝'),
+        ('applied', '已应用'),
+    ]
+
+    diagnosis = models.ForeignKey(
+        FailureDiagnosis, on_delete=models.CASCADE, related_name='fix_proposals', verbose_name='关联诊断'
+    )
+    target = models.CharField(max_length=20, choices=TARGET_CHOICES, verbose_name='修复目标')
+    title = models.CharField(max_length=300, blank=True, default='', verbose_name='标题')
+    description = models.TextField(blank=True, default='', verbose_name='说明')
+    diff = models.TextField(blank=True, default='', verbose_name='补丁/Diff')
+    patch_payload = models.JSONField(default=dict, blank=True, verbose_name='结构化补丁')
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='proposed', verbose_name='状态')
+    defect_id = models.IntegerField(null=True, blank=True, verbose_name='关联缺陷ID')
+    created_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True, related_name='created_fix_proposals', verbose_name='创建人')
+    reviewed_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True, related_name='reviewed_fix_proposals', verbose_name='审批人')
+    reviewed_at = models.DateTimeField(null=True, blank=True, verbose_name='审批时间')
+    created_at = models.DateTimeField(auto_now_add=True, verbose_name='创建时间')
+    updated_at = models.DateTimeField(auto_now=True, verbose_name='更新时间')
+
+    class Meta:
+        db_table = 'ui_auto_fix_proposals'
+        verbose_name = '自动修复提案'
+        verbose_name_plural = '自动修复提案'
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return self.title or f'Fix#{self.id}'

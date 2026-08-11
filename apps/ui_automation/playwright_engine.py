@@ -214,6 +214,12 @@ class PlaywrightTestEngine:
         try:
             # wait和screenshot操作不需要元素定位器
             if action_type == 'wait':
+                # 导航语义：input_value 为 URL 时执行 goto
+                if step.input_value and str(step.input_value).strip().startswith(('http://', 'https://')):
+                    await self.page.goto(str(step.input_value).strip(), wait_until='domcontentloaded')
+                    execution_time = round(time.time() - start_time, 2)
+                    log = f"✓ 导航到 {step.input_value} 完成 - 耗时 {execution_time}秒"
+                    return True, log, None
                 wait_seconds = step.wait_time / 1000 if step.wait_time else 1
                 await asyncio.sleep(wait_seconds)
                 execution_time = round(time.time() - start_time, 2)
@@ -228,6 +234,23 @@ class PlaywrightTestEngine:
                 log += f"  - 截图范围: 整个页面\n"
                 log += f"  - 执行时间: {execution_time}秒"
                 return True, log, screenshot_base64
+
+            elif action_type == 'scroll' and not (element_data or {}).get('locator_value'):
+                # 页面滚动：input_value = "x,y"
+                coords = None
+                if resolved_input_value and ',' in str(resolved_input_value):
+                    try:
+                        parts = str(resolved_input_value).split(',', 1)
+                        coords = (int(float(parts[0].strip())), int(float(parts[1].strip())))
+                    except (TypeError, ValueError):
+                        coords = None
+                if coords:
+                    x, y = coords
+                    await self.page.evaluate('(p) => window.scrollTo(p.x, p.y)', {'x': x, 'y': y})
+                    execution_time = round(time.time() - start_time, 2)
+                    log = f"✓ 页面滚动到 ({x}, {y}) 成功 - 耗时 {execution_time}秒"
+                    return True, log, None
+                return False, f"✗ 页面滚动失败: 缺少坐标 input_value={resolved_input_value}", None
 
             elif action_type == 'switchTab':
                 # 切换标签页
@@ -295,9 +318,22 @@ class PlaywrightTestEngine:
                 return True, log, None
 
             # 其他操作需要元素定位器
-            # 获取元素定位器
-            locator_strategy = element_data.get('locator_strategy', 'css')
-            locator_value = element_data.get('locator_value', '')
+            # 获取元素定位器（主定位器 + 备用）
+            locator_candidates = []
+            primary_strategy = element_data.get('locator_strategy', 'css')
+            primary_value = element_data.get('locator_value', '')
+            if primary_value:
+                locator_candidates.append({'strategy': primary_strategy, 'value': primary_value, 'is_primary': True})
+            for backup in element_data.get('backup_locators') or []:
+                if isinstance(backup, dict) and backup.get('value'):
+                    locator_candidates.append({
+                        'strategy': backup.get('strategy') or 'css',
+                        'value': backup['value'],
+                        'is_primary': False,
+                    })
+            if not locator_candidates:
+                locator_candidates.append({'strategy': primary_strategy, 'value': primary_value, 'is_primary': True})
+
             element_name = element_data.get('name', '未知元素')
 
             # 获取强制操作选项（用于visibility:hidden的元素）
@@ -313,51 +349,76 @@ class PlaywrightTestEngine:
             else:
                 timeout_ms = 5000  # 默认5秒
 
-            # 根据定位策略获取元素
-            if locator_strategy.lower() == 'id':
-                locator = self.page.locator(f'#{locator_value}')
-            elif locator_strategy.lower() in ['css', 'css selector']:
-                # CSS 定位器，对于可能匹配多个元素的情况，添加 .first
-                # 特别是下拉框选项，可能有多个同名选项
-                if any(keyword in locator_value.lower() for keyword in ['dropdown', 'el-select', ':has(', 'li']):
-                    # 如果是下拉框选项，强制只查找可见元素
-                    if 'visible=true' not in locator_value:
-                        locator = self.page.locator(f"{locator_value} >> visible=true").first
+            last_locate_error = None
+            locator = None
+            locator_strategy = primary_strategy
+            locator_value = primary_value
+            for candidate in locator_candidates:
+                locator_strategy = candidate['strategy']
+                locator_value = candidate['value']
+                try:
+                    # 根据定位策略获取元素
+                    if locator_strategy.lower() == 'id':
+                        locator = self.page.locator(f'#{locator_value}')
+                    elif locator_strategy.lower() in ['css', 'css selector']:
+                        # CSS 定位器，对于可能匹配多个元素的情况，添加 .first
+                        # 特别是下拉框选项，可能有多个同名选项
+                        if any(keyword in locator_value.lower() for keyword in ['dropdown', 'el-select', ':has(', 'li']):
+                            # 如果是下拉框选项，强制只查找可见元素
+                            if 'visible=true' not in locator_value:
+                                locator = self.page.locator(f"{locator_value} >> visible=true").first
+                            else:
+                                locator = self.page.locator(locator_value).first
+                        else:
+                            locator = self.page.locator(locator_value)
+                    elif locator_strategy.lower() == 'xpath':
+                        # XPath 定位器
+                        # 如果是下拉框选项，强制只查找可见元素
+                        if any(keyword in locator_value.lower() for keyword in ['dropdown', 'el-select', ':has(', 'li']):
+                            if 'visible=true' not in locator_value:
+                                locator = self.page.locator(f"xpath={locator_value} >> visible=true").first
+                            else:
+                                locator = self.page.locator(f"xpath={locator_value}").first
+                        # 如果 XPath 已经包含索引 [n]，不要添加 .first（会冲突）
+                        elif '[' in locator_value and ']' in locator_value:
+                            locator = self.page.locator(f'xpath={locator_value}')
+                        else:
+                            # 如果没有索引，添加 .first 避免 strict mode violation
+                            locator = self.page.locator(f'xpath={locator_value}').first
+                    elif locator_strategy.lower() == 'text':
+                        locator = self.page.get_by_text(locator_value)
+                    elif locator_strategy.lower() == 'name':
+                        locator = self.page.locator(f'[name="{locator_value}"]')
+                    elif locator_strategy.lower() == 'placeholder':
+                        locator = self.page.get_by_placeholder(locator_value)
+                    elif locator_strategy.lower() == 'role':
+                        if '|' in str(locator_value):
+                            role, name = str(locator_value).split('|', 1)
+                            locator = self.page.get_by_role(role, name=name)
+                        else:
+                            locator = self.page.get_by_role(locator_value)
+                    elif locator_strategy.lower() == 'label':
+                        locator = self.page.get_by_label(locator_value)
+                    elif locator_strategy.lower() == 'title':
+                        locator = self.page.get_by_title(locator_value)
+                    elif locator_strategy.lower() == 'test-id':
+                        locator = self.page.get_by_test_id(locator_value)
                     else:
-                        locator = self.page.locator(locator_value).first
-                else:
-                    locator = self.page.locator(locator_value)
-            elif locator_strategy.lower() == 'xpath':
-                # XPath 定位器
-                # 如果是下拉框选项，强制只查找可见元素
-                if any(keyword in locator_value.lower() for keyword in ['dropdown', 'el-select', ':has(', 'li']):
-                    if 'visible=true' not in locator_value:
-                        locator = self.page.locator(f"xpath={locator_value} >> visible=true").first
-                    else:
-                        locator = self.page.locator(f"xpath={locator_value}").first
-                # 如果 XPath 已经包含索引 [n]，不要添加 .first（会冲突）
-                elif '[' in locator_value and ']' in locator_value:
-                    locator = self.page.locator(f'xpath={locator_value}')
-                else:
-                    # 如果没有索引，添加 .first 避免 strict mode violation
-                    locator = self.page.locator(f'xpath={locator_value}').first
-            elif locator_strategy.lower() == 'text':
-                locator = self.page.get_by_text(locator_value)
-            elif locator_strategy.lower() == 'name':
-                locator = self.page.locator(f'[name="{locator_value}"]')
-            elif locator_strategy.lower() == 'placeholder':
-                locator = self.page.get_by_placeholder(locator_value)
-            elif locator_strategy.lower() == 'role':
-                locator = self.page.get_by_role(locator_value)
-            elif locator_strategy.lower() == 'label':
-                locator = self.page.get_by_label(locator_value)
-            elif locator_strategy.lower() == 'title':
-                locator = self.page.get_by_title(locator_value)
-            elif locator_strategy.lower() == 'test-id':
-                locator = self.page.get_by_test_id(locator_value)
-            else:
-                # 默认使用CSS选择器
-                locator = self.page.locator(locator_value)
+                        # 默认使用CSS选择器
+                        locator = self.page.locator(locator_value)
+
+                    # Probe visibility with short timeout for fallback
+                    await locator.first.wait_for(state='attached', timeout=min(timeout_ms, 3000))
+                    if not candidate.get('is_primary', True):
+                        logger.info(f"备用定位器命中: {locator_strategy}={locator_value}")
+                    break
+                except Exception as locate_exc:
+                    last_locate_error = locate_exc
+                    locator = None
+                    continue
+
+            if locator is None:
+                raise last_locate_error or Exception(f'无法定位元素: {element_name}')
 
             # 执行操作
             execution_time = 0
@@ -730,6 +791,25 @@ class PlaywrightTestEngine:
                 return True, log, None
 
             elif action_type == 'scroll':
+                # 容器滚动坐标优先；否则滚动到元素可见
+                coords = None
+                if resolved_input_value and ',' in str(resolved_input_value):
+                    try:
+                        parts = str(resolved_input_value).split(',', 1)
+                        coords = (int(float(parts[0].strip())), int(float(parts[1].strip())))
+                    except (TypeError, ValueError):
+                        coords = None
+                if coords:
+                    x, y = coords
+                    await locator.evaluate(
+                        '(el, p) => { el.scrollLeft = p.x; el.scrollTop = p.y; }',
+                        {'x': x, 'y': y},
+                    )
+                    execution_time = round(time.time() - start_time, 2)
+                    log = f"✓ 容器 '{element_name}' 滚动到 ({x}, {y}) 成功\n"
+                    log += f"  - 定位器: {locator_strategy}={locator_value}\n"
+                    log += f"  - 执行时间: {execution_time}秒"
+                    return True, log, None
                 await locator.scroll_into_view_if_needed(timeout=timeout_ms)
                 execution_time = round(time.time() - start_time, 2)
                 log = f"✓ 滚动到元素 '{element_name}' 成功\n"

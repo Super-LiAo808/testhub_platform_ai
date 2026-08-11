@@ -36,11 +36,13 @@
           {{ formatDate(scope.row.created_at) }}
         </template>
       </el-table-column>
-      <el-table-column :label="$t('apiTesting.common.operation')" width="200">
+      <el-table-column :label="$t('apiTesting.common.operation')" width="180">
         <template #default="scope">
-          <el-button link type="primary" @click="editProject(scope.row)">{{ $t('apiTesting.common.edit') }}</el-button>
-          <el-button link type="primary" @click="viewProject(scope.row)">{{ $t('apiTesting.common.view') }}</el-button>
-          <el-button link type="danger" @click="deleteProject(scope.row)">{{ $t('apiTesting.common.delete') }}</el-button>
+          <div class="table-actions">
+            <el-button link type="primary" size="small" @click="editProject(scope.row)">{{ $t('apiTesting.common.edit') }}</el-button>
+            <el-button link type="primary" size="small" @click="viewProject(scope.row)">{{ $t('apiTesting.common.view') }}</el-button>
+            <el-button link type="danger" size="small" @click="deleteProject(scope.row)">{{ $t('apiTesting.common.delete') }}</el-button>
+          </div>
         </template>
       </el-table-column>
     </el-table>

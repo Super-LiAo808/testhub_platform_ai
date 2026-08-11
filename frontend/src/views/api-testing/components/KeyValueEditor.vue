@@ -129,7 +129,9 @@
               <el-table-column prop="example" :label="$t('apiTesting.component.keyValueEditor.example')" min-width="200" show-overflow-tooltip />
               <el-table-column :label="$t('apiTesting.component.keyValueEditor.operation')" width="80" fixed="right">
                 <template #default="{ row }">
-                  <el-button link type="primary" size="small">{{ $t('apiTesting.component.keyValueEditor.insert') }}</el-button>
+                  <div class="table-actions">
+                    <el-button link type="primary" size="small">{{ $t('apiTesting.component.keyValueEditor.insert') }}</el-button>
+                  </div>
                 </template>
               </el-table-column>
             </el-table>

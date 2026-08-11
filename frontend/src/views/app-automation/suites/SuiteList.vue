@@ -128,20 +128,22 @@
           {{ formatDateTime(row.updated_at) }}
         </template>
       </el-table-column>
-      <el-table-column :label="$t('appAutomation.common.operation')" width="220" fixed="right">
+      <el-table-column :label="$t('appAutomation.common.operation')" width="240" fixed="right">
         <template #default="{ row }">
-          <el-button link type="success" size="small" @click="runSuite(row)">
-            {{ $t('appAutomation.common.execute') }}
-          </el-button>
-          <el-button link type="primary" size="small" @click="showEditDialog(row)">
-            {{ $t('appAutomation.common.edit') }}
-          </el-button>
-          <el-button link type="warning" size="small" @click="showSuiteExecutions(row)">
-            {{ $t('appAutomation.suite.history') }}
-          </el-button>
-          <el-button link type="danger" size="small" @click="deleteSuite(row)">
-            {{ $t('appAutomation.common.delete') }}
-          </el-button>
+          <div class="table-actions">
+            <el-button link type="success" size="small" @click="runSuite(row)">
+              {{ $t('appAutomation.common.execute') }}
+            </el-button>
+            <el-button link type="primary" size="small" @click="showEditDialog(row)">
+              {{ $t('appAutomation.common.edit') }}
+            </el-button>
+            <el-button link type="warning" size="small" @click="showSuiteExecutions(row)">
+              {{ $t('appAutomation.suite.history') }}
+            </el-button>
+            <el-button link type="danger" size="small" @click="deleteSuite(row)">
+              {{ $t('appAutomation.common.delete') }}
+            </el-button>
+          </div>
         </template>
       </el-table-column>
     </el-table>
@@ -268,13 +270,15 @@
         </el-table-column>
         <el-table-column :label="$t('appAutomation.common.operation')" width="100">
           <template #default="{ row }">
-            <el-button
-              v-if="row.status === 'completed' || row.status === 'error'"
-              link type="primary" size="small"
-              @click="viewReport(row)"
-            >
-              {{ $t('appAutomation.suite.viewReport') }}
-            </el-button>
+            <div class="table-actions">
+              <el-button
+                v-if="row.status === 'completed' || row.status === 'error'"
+                link type="primary" size="small"
+                @click="viewReport(row)"
+              >
+                {{ $t('appAutomation.suite.viewReport') }}
+              </el-button>
+            </div>
           </template>
         </el-table-column>
       </el-table>

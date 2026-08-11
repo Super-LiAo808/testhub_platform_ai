@@ -50,6 +50,56 @@ class AppTestConfig(models.Model):
         verbose_name='ADB路径',
         help_text='Android Debug Bridge 工具路径，默认为 adb（系统PATH）'
     )
+    appium_server_url = models.CharField(
+        max_length=500,
+        default='http://127.0.0.1:4723',
+        verbose_name='Appium Server 地址',
+        help_text='Appium Server URL，默认 http://127.0.0.1:4723',
+    )
+    appium_command = models.CharField(
+        max_length=500,
+        default='appium',
+        verbose_name='Appium 启动命令',
+        help_text='用于平台自动拉起的命令，如 appium 或 npx appium，也可填绝对路径',
+    )
+    appium_auto_start = models.BooleanField(
+        default=True,
+        verbose_name='自动拉起 Appium',
+        help_text='录制开始时若 Server 未运行则由平台自动启动（需本机已安装 Appium）',
+    )
+    android_sdk_path = models.CharField(
+        max_length=500,
+        blank=True,
+        default='',
+        verbose_name='Android SDK 路径',
+        help_text='ANDROID_HOME；可留空，将根据 ADB 路径自动推断（需包含 platform-tools）',
+    )
+    scrcpy_path = models.CharField(
+        max_length=500,
+        blank=True,
+        default='',
+        verbose_name='scrcpy 路径',
+        help_text='scrcpy 可执行文件或所在目录；也可通过环境变量 SCRCPY_PATH 配置',
+    )
+    scrcpy_server_path = models.CharField(
+        max_length=500,
+        blank=True,
+        default='',
+        verbose_name='scrcpy-server 路径',
+        help_text='scrcpy-server jar；也可通过 SCRCPY_SERVER_PATH 配置',
+    )
+    scrcpy_max_size = models.PositiveIntegerField(
+        default=1280,
+        verbose_name='scrcpy 最大边长',
+        help_text='投屏缩放最大边（像素），对应 SCRCPY_MAX_SIZE',
+    )
+    scrcpy_bit_rate = models.CharField(
+        max_length=32,
+        blank=True,
+        default='4000000',
+        verbose_name='scrcpy 码率',
+        help_text='如 4000000 或 4M；对应 SCRCPY_BIT_RATE',
+    )
     created_at = models.DateTimeField(auto_now_add=True, verbose_name='创建时间')
     updated_at = models.DateTimeField(auto_now=True, verbose_name='更新时间')
     
@@ -832,3 +882,50 @@ class AppNotificationLog(models.Model):
 
     def get_retry_status(self):
         return f"已重试 {self.retry_count} 次" if self.is_retried else "未重试"
+
+
+class AppRecordingSession(models.Model):
+    """APP 操作录制会话（实时投屏 + 手势同步）"""
+    STATUS_CHOICES = [
+        ('idle', '空闲'),
+        ('recording', '录制中'),
+        ('stopped', '已停止'),
+        ('failed', '失败'),
+    ]
+
+    project = models.ForeignKey(
+        AppProject, on_delete=models.CASCADE,
+        related_name='recording_sessions', verbose_name='所属项目'
+    )
+    device = models.ForeignKey(
+        AppDevice, on_delete=models.SET_NULL,
+        null=True, blank=True,
+        related_name='recording_sessions', verbose_name='录制设备'
+    )
+    name = models.CharField(max_length=200, blank=True, default='', verbose_name='会话名称')
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='idle', verbose_name='状态')
+    ui_flow = models.JSONField(default=list, blank=True, verbose_name='录制步骤')
+    screen_width = models.IntegerField(default=0, verbose_name='设备宽度')
+    screen_height = models.IntegerField(default=0, verbose_name='设备高度')
+    error_message = models.TextField(blank=True, default='', verbose_name='错误信息')
+    test_case = models.ForeignKey(
+        'AppTestCase', on_delete=models.SET_NULL,
+        null=True, blank=True,
+        related_name='from_recordings', verbose_name='生成用例'
+    )
+    created_by = models.ForeignKey(
+        User, on_delete=models.SET_NULL, null=True, blank=True, verbose_name='创建人'
+    )
+    started_at = models.DateTimeField(null=True, blank=True, verbose_name='开始时间')
+    stopped_at = models.DateTimeField(null=True, blank=True, verbose_name='结束时间')
+    created_at = models.DateTimeField(auto_now_add=True, verbose_name='创建时间')
+    updated_at = models.DateTimeField(auto_now=True, verbose_name='更新时间')
+
+    class Meta:
+        db_table = 'app_recording_sessions'
+        verbose_name = 'APP录制会话'
+        verbose_name_plural = 'APP录制会话'
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return f'{self.name or self.id} ({self.status})'

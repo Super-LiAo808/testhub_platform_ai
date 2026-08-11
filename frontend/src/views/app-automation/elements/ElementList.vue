@@ -150,17 +150,19 @@
           </template>
         </el-table-column>
 
-        <el-table-column :label="$t('appAutomation.common.operation')" width="280" fixed="right">
+        <el-table-column :label="$t('appAutomation.common.operation')" width="200" fixed="right">
           <template #default="{ row }">
-            <el-button size="small" type="primary" @click="handleEdit(row)">
-              {{ $t('appAutomation.common.edit') }}
-            </el-button>
-            <el-button size="small" @click="handleDuplicate(row)">
-              {{ $t('appAutomation.element.copy') }}
-            </el-button>
-            <el-button size="small" type="danger" @click="handleDelete(row)">
-              {{ $t('appAutomation.common.delete') }}
-            </el-button>
+            <div class="table-actions">
+              <el-button link type="primary" size="small" @click="handleEdit(row)">
+                {{ $t('appAutomation.common.edit') }}
+              </el-button>
+              <el-button link size="small" @click="handleDuplicate(row)">
+                {{ $t('appAutomation.element.copy') }}
+              </el-button>
+              <el-button link type="danger" size="small" @click="handleDelete(row)">
+                {{ $t('appAutomation.common.delete') }}
+              </el-button>
+            </div>
           </template>
         </el-table-column>
       </el-table>

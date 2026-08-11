@@ -36,9 +36,11 @@
                   {{ formatDate(row.joined_at) }}
                 </template>
               </el-table-column>
-              <el-table-column :label="$t('project.actions')" width="100">
+              <el-table-column :label="$t('project.actions')" width="120">
                 <template #default="{ row }">
-                  <el-button size="small" type="danger" @click="removeMember(row)">{{ $t('common.delete') }}</el-button>
+                  <div class="table-actions">
+                    <el-button link type="danger" size="small" @click="removeMember(row)">{{ $t('common.delete') }}</el-button>
+                  </div>
                 </template>
               </el-table-column>
             </el-table>

@@ -133,14 +133,16 @@
                   {{ $t('apiTesting.automation.assertionCount', { n: scope.row.assertions?.length || 0 }) }}
                 </template>
               </el-table-column>
-              <el-table-column :label="$t('apiTesting.common.operation')" width="150">
+              <el-table-column :label="$t('apiTesting.common.operation')" width="160">
                 <template #default="scope">
-                  <el-button link type="primary" @click="editAssertions(scope.row)" size="small">
-                    {{ $t('apiTesting.automation.editAssertions') }}
-                  </el-button>
-                  <el-button link type="danger" @click="removeRequest(scope.row)" size="small">
-                    {{ $t('apiTesting.automation.remove') }}
-                  </el-button>
+                  <div class="table-actions">
+                    <el-button link type="primary" @click="editAssertions(scope.row)" size="small">
+                      {{ $t('apiTesting.automation.editAssertions') }}
+                    </el-button>
+                    <el-button link type="danger" @click="removeRequest(scope.row)" size="small">
+                      {{ $t('apiTesting.automation.remove') }}
+                    </el-button>
+                  </div>
                 </template>
               </el-table-column>
             </el-table>
@@ -186,11 +188,13 @@
                   {{ formatDate(scope.row.created_at) }}
                 </template>
               </el-table-column>
-              <el-table-column :label="$t('apiTesting.common.operation')" width="120">
+              <el-table-column :label="$t('apiTesting.common.operation')" width="100">
                 <template #default="scope">
-                  <el-button link type="primary" @click="viewExecutionDetail(scope.row)" size="small">
-                    {{ $t('apiTesting.automation.viewDetails') }}
-                  </el-button>
+                  <div class="table-actions">
+                    <el-button link type="primary" @click="viewExecutionDetail(scope.row)" size="small">
+                      {{ $t('apiTesting.automation.viewDetails') }}
+                    </el-button>
+                  </div>
                 </template>
               </el-table-column>
             </el-table>

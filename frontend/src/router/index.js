@@ -33,6 +33,7 @@ import UiNotificationLogs from '@/views/ui-automation/notification/NotificationL
 import UiAITesting from '@/views/ui-automation/ai/AITesting.vue'
 import UiAICaseList from '@/views/ui-automation/ai/AICaseList.vue'
 import UiAIExecutionRecords from '@/views/ui-automation/ai/AIExecutionRecords.vue'
+import UiRecording from '@/views/ui-automation/recording/Recording.vue'
 
 /** @type {import('vue-router').RouteRecordRaw[]} */
 const routes = [
@@ -271,6 +272,11 @@ const routes = [
                 component: UiTestCaseManager
             },
             {
+                path: 'recording',
+                name: 'UiRecording',
+                component: UiRecording
+            },
+            {
                 path: 'scripts-enhanced',
                 name: 'UiScriptsEnhanced',
                 component: UiScriptEditorEnhanced
@@ -335,6 +341,10 @@ const routes = [
                 path: 'execution-records',
                 name: 'AIExecutionRecords',
                 component: UiAIExecutionRecords
+            },
+            {
+                path: 'recording',
+                redirect: '/ui-automation/recording'
             }
         ]
     },
@@ -476,6 +486,12 @@ const routes = [
                 path: 'elements',
                 name: 'AppElementList',
                 component: () => import('@/views/app-automation/elements/ElementList.vue')
+            },
+            {
+                path: 'recording',
+                name: 'AppRecording',
+                component: () => import('@/views/app-automation/recording/Recording.vue'),
+                meta: { title: '操作录制' }
             },
             {
                 path: 'scene-builder',

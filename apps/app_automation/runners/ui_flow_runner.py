@@ -104,6 +104,8 @@ class UiFlowRunner:
         Returns:
             执行结果字典
         """
+        if isinstance(ui_flow, dict):
+            ui_flow = ui_flow.get('steps') or []
         if not isinstance(ui_flow, list):
             raise ValueError("ui_flow 必须是列表")
         
@@ -239,9 +241,11 @@ class UiFlowRunner:
     
     def _execute_step(self, step: Dict[str, Any]):
         """执行单个步骤，支持基础组件和自定义组件"""
-        # 使用 type 字段获取步骤类型
-        action_type = step.get('type', '')
+        # 使用 type 字段获取步骤类型（兼容旧录制格式的 action）
+        action_type = step.get('type') or step.get('action') or ''
         action = action_type.lower() if action_type else ''
+        if action == 'tap':
+            action = 'click'
         
         # 渲染步骤参数
         step = self._render_value(step)
@@ -253,6 +257,10 @@ class UiFlowRunner:
             for key, value in config.items():
                 if key not in step:
                     step[key] = value
+
+        # 兼容旧录制：input 用 text 而非 value
+        if action == 'input' and not step.get('value') and step.get('text') is not None:
+            step['value'] = step['text']
         
         # ---- 步骤级重试机制 ----
         retry_times = int(step.get('retry_times', 0))
@@ -449,7 +457,7 @@ class UiFlowRunner:
         - pos: 坐标点
         - region: 区域
         """
-        # 优先使用 element_id
+        # 优先使用 element_id；若步骤带有 fallback_pos，失败时由 _action_touch 回退
         element_id = step.get('element_id')
         if element_id:
             return self._resolve_element_by_id(element_id)
@@ -471,6 +479,8 @@ class UiFlowRunner:
                 return None
             
             threshold = step.get('image_threshold', 0.7)
+            if str(image_scope) == 'recorded' or 'recorded' in str(image_path).replace('\\', '/'):
+                threshold = min(float(threshold or 0.7), 0.55)
             return Template(image_path, threshold=threshold)
         
         elif selector_type == 'pos':
@@ -526,7 +536,11 @@ class UiFlowRunner:
                     logger.warning(f"图片文件不存在: {image_path}")
                     return None
                 
-                threshold = element.config.get('image_threshold', 0.7)
+                threshold = element.config.get('image_threshold', element.config.get('threshold', 0.7))
+                # 录制元素适当放宽阈值，提升回放成功率
+                tags = getattr(element, 'tags', None) or []
+                if 'recorded' in tags or str(image_rel_path).startswith('recorded/'):
+                    threshold = min(float(threshold or 0.7), 0.55)
                 return Template(image_path, threshold=threshold)
             
             elif element.element_type == 'pos':
@@ -546,13 +560,64 @@ class UiFlowRunner:
             return None
     
     def _action_touch(self, step: Dict[str, Any]):
-        """点击动作"""
+        """点击动作：优先图片/元素匹配，失败则回退到录制坐标。"""
+        from airtest.core.error import TargetNotFoundError
+
         target = self._resolve_selector(step)
         if target is None:
             step_name = step.get('name', step.get('type', 'unknown'))
             raise ValueError(f"步骤 '{step_name}' 无法解析选择器，请检查元素配置（selector 或 element_id）")
-        logger.info(f"执行点击: {target}")
-        touch(target)
+
+        fallback = self._extract_fallback_pos(step)
+        try:
+            logger.info(f"执行点击: {target}")
+            # 录制图匹配给更短超时，失败后快速走坐标
+            old_timeout = getattr(ST, 'FIND_TIMEOUT', 6)
+            try:
+                if not isinstance(target, tuple):
+                    ST.FIND_TIMEOUT = min(float(old_timeout), float(step.get('timeout') or 4))
+                touch(target)
+            finally:
+                ST.FIND_TIMEOUT = old_timeout
+        except TargetNotFoundError as exc:
+            if fallback:
+                logger.warning(f"图片未匹配到，回退坐标点击 {fallback}: {exc}")
+                touch(fallback)
+            else:
+                raise
+
+    def _extract_fallback_pos(self, step: Dict[str, Any]) -> Optional[tuple]:
+        """从步骤中提取坐标兜底（录制时写入的 fallback_pos / 原始 selector）。"""
+        candidates = [
+            step.get('fallback_pos'),
+            step.get('pos'),
+        ]
+        selector = step.get('selector')
+        selector_type = (step.get('selector_type') or '').lower()
+        if selector_type == 'pos' or isinstance(selector, (list, tuple)):
+            candidates.append(selector)
+        # config 可能已合并到顶层；再看原始 config
+        cfg = step.get('config') if isinstance(step.get('config'), dict) else {}
+        candidates.extend([cfg.get('fallback_pos'), cfg.get('pos')])
+        if (cfg.get('selector_type') or '').lower() == 'pos':
+            candidates.append(cfg.get('selector'))
+
+        for item in candidates:
+            if item is None:
+                continue
+            if isinstance(item, str):
+                parts = [p.strip() for p in item.replace('[', '').replace(']', '').split(',') if p.strip()]
+                if len(parts) >= 2:
+                    try:
+                        return (int(float(parts[0])), int(float(parts[1])))
+                    except ValueError:
+                        continue
+            elif isinstance(item, (list, tuple)) and len(item) >= 2:
+                try:
+                    return (int(item[0]), int(item[1]))
+                except (TypeError, ValueError):
+                    continue
+        return None
     
     def _action_double_click(self, step: Dict[str, Any]):
         """双击动作"""

@@ -185,10 +185,10 @@ class AppTestSuiteViewSet(viewsets.ModelViewSet):
             suite.execution_status = 'running'
             suite.save(update_fields=['execution_status'])
 
-            # 触发 Celery 任务，顺序执行
-            from ..tasks import execute_app_suite_task
+            # 触发执行任务，顺序执行（无 Celery worker 时走本地线程）
+            from ..tasks import dispatch_app_suite_execution
             execution_ids = [e.id for e in executions]
-            task = execute_app_suite_task.delay(
+            task_id = dispatch_app_suite_execution(
                 suite_id=suite.id,
                 execution_ids=execution_ids,
                 package_name=package_name
@@ -196,18 +196,18 @@ class AppTestSuiteViewSet(viewsets.ModelViewSet):
 
             # 记录 task_id 到第一个执行
             if executions:
-                executions[0].task_id = task.id
+                executions[0].task_id = task_id
                 executions[0].save(update_fields=['task_id'])
 
             logger.info(f"测试套件已提交执行: suite={suite.name}, "
-                        f"cases={len(executions)}, task_id={task.id}")
+                        f"cases={len(executions)}, task_id={task_id}")
 
             return Response({
                 'success': True,
                 'message': f'测试套件已提交执行，共 {len(executions)} 个用例',
                 'data': {
                     'suite_id': suite.id,
-                    'task_id': task.id,
+                    'task_id': task_id,
                     'execution_ids': execution_ids,
                     'test_case_count': len(executions),
                 }

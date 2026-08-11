@@ -77,3 +77,19 @@ docker-compose*.yml
 nginx.conf
 Makefile
 build-multiplatform.sh
+# scrcpy 本地工具（保留 server + VERSION，忽略安装包）
+tools/scrcpy/*.zip
+tools/scrcpy/*.exe
+tools/scrcpy/*.dll
+tools/scrcpy/scrcpy-win64-*/
+tools/scrcpy/extract/
+tools/scrcpy/*_debug*.txt
+tools/scrcpy/srv_*.txt
+
+# Extra ignores (venv / tmp screenshots / media logs)
+venv/
+tmp_sc*.png
+**/tmp_sc*.png
+media/app-automation/logs/*
+!media/app-automation/logs/.gitkeep
+media/**/*.log

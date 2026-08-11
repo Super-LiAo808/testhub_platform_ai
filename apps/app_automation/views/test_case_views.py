@@ -77,17 +77,17 @@ class AppTestCaseViewSet(viewsets.ModelViewSet):
                 status='pending'
             )
             
-            # 调用 Celery 任务异步执行
-            from ..tasks import execute_app_test_task
-            task = execute_app_test_task.delay(execution.id, package_name=package_name)
-            execution.task_id = task.id
+            # 调用 Celery（无 worker 时自动兜底本地线程）
+            from ..tasks import dispatch_app_test_execution
+            task_id = dispatch_app_test_execution(execution.id, package_name=package_name)
+            execution.task_id = task_id
             execution.save()
             
-            logger.info(f"测试已提交执行: execution_id={execution.id}, task_id={task.id}")
+            logger.info(f"测试已提交执行: execution_id={execution.id}, task_id={task_id}")
             
             return Response({
                 'success': True,
-                'message': '测试已提交执行',
+                'message': '测试已提交执行' if not str(task_id).startswith('thread-') else '测试已提交执行（本地线程模式，未检测到 Celery worker）',
                 'execution': AppTestExecutionSerializer(execution).data
             })
             

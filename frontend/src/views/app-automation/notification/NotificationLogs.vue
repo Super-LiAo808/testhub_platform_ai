@@ -51,7 +51,9 @@
       </el-table-column>
       <el-table-column :label="$t('appAutomation.common.operation')" fixed="right" width="100">
         <template #default="{ row }">
-          <el-button type="primary" link size="small" @click="viewDetail(row)">{{ $t('appAutomation.common.details') }}</el-button>
+          <div class="table-actions">
+            <el-button link type="primary" size="small" @click="viewDetail(row)">{{ $t('appAutomation.common.details') }}</el-button>
+          </div>
         </template>
       </el-table-column>
     </el-table>

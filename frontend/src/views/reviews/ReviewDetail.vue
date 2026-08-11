@@ -135,10 +135,12 @@
             </template>
           </el-table-column>
           <el-table-column prop="author.username" :label="$t('reviewDetail.author')" width="120" />
-          <el-table-column :label="$t('reviewList.actions')" width="120">
+          <el-table-column :label="$t('reviewList.actions')" width="140">
             <template #default="{ row }">
-              <el-button link type="primary" @click="viewTestcase(row.id)">{{ $t('reviewDetail.view') }}</el-button>
-              <el-button link type="success" @click="addComment(row)">{{ $t('reviewDetail.comment') }}</el-button>
+              <div class="table-actions">
+                <el-button link type="primary" size="small" @click="viewTestcase(row.id)">{{ $t('reviewDetail.view') }}</el-button>
+                <el-button link type="success" size="small" @click="addComment(row)">{{ $t('reviewDetail.comment') }}</el-button>
+              </div>
             </template>
           </el-table-column>
         </el-table>

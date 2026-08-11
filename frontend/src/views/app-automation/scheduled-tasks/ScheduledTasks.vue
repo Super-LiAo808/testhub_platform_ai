@@ -96,20 +96,22 @@
           <span style="color:#f56c6c">{{ $t('appAutomation.common.failed') }} {{ row.failed_runs }}</span>
         </template>
       </el-table-column>
-      <el-table-column :label="$t('appAutomation.common.operation')" width="200" fixed="right">
+      <el-table-column :label="$t('appAutomation.common.operation')" width="140" fixed="right">
         <template #default="{ row }">
-          <el-button size="small" @click="runNow(row)" :loading="row._running">{{ $t('appAutomation.common.execute') }}</el-button>
-          <el-dropdown @command="cmd => handleAction(cmd, row)">
-            <el-button size="small">{{ $t('appAutomation.scheduledTask.more') }}<el-icon><ArrowDown /></el-icon></el-button>
-            <template #dropdown>
-              <el-dropdown-menu>
-                <el-dropdown-item command="edit">{{ $t('appAutomation.common.edit') }}</el-dropdown-item>
-                <el-dropdown-item command="pause" v-if="row.status === 'ACTIVE'">{{ $t('appAutomation.scheduledTask.actions.pause') }}</el-dropdown-item>
-                <el-dropdown-item command="resume" v-if="row.status === 'PAUSED'">{{ $t('appAutomation.scheduledTask.actions.resume') }}</el-dropdown-item>
-                <el-dropdown-item command="delete" divided>{{ $t('appAutomation.common.delete') }}</el-dropdown-item>
-              </el-dropdown-menu>
-            </template>
-          </el-dropdown>
+          <div class="table-actions">
+            <el-button link type="primary" size="small" @click="runNow(row)" :loading="row._running">{{ $t('appAutomation.common.execute') }}</el-button>
+            <el-dropdown @command="cmd => handleAction(cmd, row)">
+              <el-button link size="small">{{ $t('appAutomation.scheduledTask.more') }}<el-icon><ArrowDown /></el-icon></el-button>
+              <template #dropdown>
+                <el-dropdown-menu>
+                  <el-dropdown-item command="edit">{{ $t('appAutomation.common.edit') }}</el-dropdown-item>
+                  <el-dropdown-item command="pause" v-if="row.status === 'ACTIVE'">{{ $t('appAutomation.scheduledTask.actions.pause') }}</el-dropdown-item>
+                  <el-dropdown-item command="resume" v-if="row.status === 'PAUSED'">{{ $t('appAutomation.scheduledTask.actions.resume') }}</el-dropdown-item>
+                  <el-dropdown-item command="delete" divided>{{ $t('appAutomation.common.delete') }}</el-dropdown-item>
+                </el-dropdown-menu>
+              </template>
+            </el-dropdown>
+          </div>
         </template>
       </el-table-column>
     </el-table>

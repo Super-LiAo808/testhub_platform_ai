@@ -170,6 +170,9 @@ selenium==4.15.2
 webdriver-manager==4.0.1
 browser-use==0.10.1
 
+# APP 录制（Appium 混合投屏 / 手势）
+Appium-Python-Client>=3.1.0,<5
+
 # JWT 安全机制
 djangorestframework-simplejwt==5.5.1
 PyJWT>=2.8.0

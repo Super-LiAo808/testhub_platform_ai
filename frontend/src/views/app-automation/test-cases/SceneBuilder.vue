@@ -871,9 +871,11 @@
 
                     <el-table-column :label="$t('appAutomation.common.operation')" width="100" fixed="right">
                         <template #default="{ row }">
-                            <el-button size="small" type="primary" @click.stop="applyElement(row)">
-                                {{ $t('appAutomation.sceneBuilder.elementSelector.apply') }}
-                            </el-button>
+                            <div class="table-actions">
+                                <el-button link type="primary" size="small" @click.stop="applyElement(row)">
+                                    {{ $t('appAutomation.sceneBuilder.elementSelector.apply') }}
+                                </el-button>
+                            </div>
                         </template>
                     </el-table-column>
                 </el-table>
@@ -1845,9 +1847,32 @@ const loadCaseDetail = async (caseId) => {
                 retry_times: data.runtime?.retry_times || 0,
                 retry_interval: data.runtime?.retry_interval || 0.5
             }
-            scenarioSteps.value = (Array.isArray(data.ui_flow) ? data.ui_flow : []).map(step => {
+            const rawFlow = data.ui_flow
+            const flowList = Array.isArray(rawFlow)
+                ? rawFlow
+                : (rawFlow && Array.isArray(rawFlow.steps) ? rawFlow.steps : [])
+            scenarioSteps.value = flowList.map(step => {
                 // 确保每个步骤有 id
                 if (!step.id) step.id = generateStepId()
+                // 兼容旧录制字段 action -> type
+                if (!step.type && step.action) step.type = step.action === 'tap' ? 'click' : step.action
+                if (!step.config) step.config = {}
+                if (step.element_id && step.config.element_id === undefined) {
+                    step.config.element_id = step.element_id
+                }
+                if (step.type === 'input') {
+                    if (step.config.value === undefined && step.text != null) step.config.value = step.text
+                    if (step.config.value === undefined && step.value != null) step.config.value = step.value
+                }
+                if (step.type === 'swipe') {
+                    if (step.config.start === undefined && step.start) step.config.start = step.start
+                    if (step.config.end === undefined && step.end) step.config.end = step.end
+                    if (step.config.duration === undefined && step.duration != null) step.config.duration = step.duration
+                }
+                if ((step.type === 'click' || step.type === 'touch') && !step.config.selector && step.selector) {
+                    step.config.selector = step.selector
+                    step.config.selector_type = step.selector_type || step.config.selector_type || 'pos'
+                }
                 // 自定义组件初始化展开状态
                 if (step.kind === 'custom' && step.steps) {
                     step._expanded = false

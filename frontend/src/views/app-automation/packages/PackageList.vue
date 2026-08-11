@@ -35,14 +35,16 @@
           {{ formatDateTime(row.updated_at) }}
         </template>
       </el-table-column>
-      <el-table-column :label="$t('appAutomation.common.operation')" width="160" fixed="right">
+      <el-table-column :label="$t('appAutomation.common.operation')" width="130" fixed="right">
         <template #default="{ row }">
-          <el-button link size="small" type="primary" @click="openEditDialog(row)">
-            {{ $t('appAutomation.common.edit') }}
-          </el-button>
-          <el-button link size="small" type="danger" @click="handleDelete(row)">
-            {{ $t('appAutomation.common.delete') }}
-          </el-button>
+          <div class="table-actions">
+            <el-button link type="primary" size="small" @click="openEditDialog(row)">
+              {{ $t('appAutomation.common.edit') }}
+            </el-button>
+            <el-button link type="danger" size="small" @click="handleDelete(row)">
+              {{ $t('appAutomation.common.delete') }}
+            </el-button>
+          </div>
         </template>
       </el-table-column>
     </el-table>

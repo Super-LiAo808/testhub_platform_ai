@@ -41,24 +41,26 @@
             {{ formatTime(row.created_at) }}
           </template>
         </el-table-column>
-        <el-table-column :label="$t('uiAutomation.script.operationColumn')" width="280" fixed="right">
+        <el-table-column :label="$t('uiAutomation.script.operationColumn')" width="260" fixed="right">
           <template #default="{ row }">
-            <el-button size="small" text @click="viewScript(row)">
-              <el-icon><View /></el-icon>
-              {{ $t('uiAutomation.script.viewDetail') }}
-            </el-button>
-            <el-button size="small" text @click="editScript(row)">
-              <el-icon><Edit /></el-icon>
-              {{ $t('uiAutomation.script.edit') }}
-            </el-button>
-            <el-button size="small" text @click="renameScript(row)">
-              <el-icon><EditPen /></el-icon>
-              {{ $t('uiAutomation.script.rename') }}
-            </el-button>
-            <el-button size="small" text type="danger" @click="deleteScript(row)">
-              <el-icon><Delete /></el-icon>
-              {{ $t('uiAutomation.script.delete') }}
-            </el-button>
+            <div class="table-actions">
+              <el-button size="small" text @click="viewScript(row)">
+                <el-icon><View /></el-icon>
+                {{ $t('uiAutomation.script.viewDetail') }}
+              </el-button>
+              <el-button size="small" text @click="editScript(row)">
+                <el-icon><Edit /></el-icon>
+                {{ $t('uiAutomation.script.edit') }}
+              </el-button>
+              <el-button size="small" text @click="renameScript(row)">
+                <el-icon><EditPen /></el-icon>
+                {{ $t('uiAutomation.script.rename') }}
+              </el-button>
+              <el-button size="small" text type="danger" @click="deleteScript(row)">
+                <el-icon><Delete /></el-icon>
+                {{ $t('uiAutomation.script.delete') }}
+              </el-button>
+            </div>
           </template>
         </el-table-column>
       </el-table>

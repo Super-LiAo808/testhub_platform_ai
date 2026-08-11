@@ -21,23 +21,31 @@
 
       <el-table :data="cases" v-loading="loading" style="width: 100%">
         <el-table-column prop="name" :label="$t('uiAutomation.ai.caseList.caseName')" min-width="200" show-overflow-tooltip />
+        <el-table-column prop="preferred_mode" label="执行模式" width="120">
+          <template #default="{ row }">
+            <el-tag size="small">{{ row.preferred_mode === 'script_replay' ? '脚本回放' : 'AI探索' }}</el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column prop="linked_test_case_name" label="关联回归用例" min-width="160" show-overflow-tooltip />
         <el-table-column prop="description" :label="$t('uiAutomation.common.description')" min-width="200" show-overflow-tooltip />
         <el-table-column prop="task_description" :label="$t('uiAutomation.ai.caseList.taskDescription')" min-width="300" show-overflow-tooltip />
         <el-table-column prop="created_at" :label="$t('uiAutomation.common.createTime')" width="180" :formatter="formatDate" />
         <el-table-column :label="$t('uiAutomation.common.operation')" width="200" fixed="right">
           <template #default="{ row }">
-            <el-button size="small" type="success" @click="runCase(row)">
-              <el-icon><VideoPlay /></el-icon>
-              {{ $t('uiAutomation.common.run') }}
-            </el-button>
-            <el-button size="small" type="primary" @click="editCase(row)">
-              <el-icon><Edit /></el-icon>
-              {{ $t('uiAutomation.common.edit') }}
-            </el-button>
-            <el-button size="small" type="danger" @click="deleteCase(row.id)">
-              <el-icon><Delete /></el-icon>
-              {{ $t('uiAutomation.common.delete') }}
-            </el-button>
+            <div class="table-actions">
+              <el-button link type="success" size="small" @click="runCase(row)">
+                <el-icon><VideoPlay /></el-icon>
+                {{ $t('uiAutomation.common.run') }}
+              </el-button>
+              <el-button link type="primary" size="small" @click="editCase(row)">
+                <el-icon><Edit /></el-icon>
+                {{ $t('uiAutomation.common.edit') }}
+              </el-button>
+              <el-button link type="danger" size="small" @click="deleteCase(row.id)">
+                <el-icon><Delete /></el-icon>
+                {{ $t('uiAutomation.common.delete') }}
+              </el-button>
+            </div>
           </template>
         </el-table-column>
       </el-table>
@@ -218,7 +226,7 @@ const deleteCase = async (id) => {
 // 执行用例
 const runCase = async (row) => {
   try {
-    await runAICase(row.id)
+    await runAICase(row.id, { auto_compile_testcase: true })
     ElMessage.success(t('uiAutomation.ai.caseList.messages.runSuccess'))
     // 跳转到执行记录页面
     router.push('/ai-intelligent-mode/execution-records')

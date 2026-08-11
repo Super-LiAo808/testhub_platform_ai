@@ -127,10 +127,12 @@
               {{ formatDate(row.created_at) }}
             </template>
           </el-table-column>
-          <el-table-column :label="$t('project.actions')" width="150" fixed="right">
+          <el-table-column :label="$t('project.actions')" width="140" fixed="right">
             <template #default="{ row }">
-              <el-button size="small" @click="editTestCase(row)">{{ $t('common.edit') }}</el-button>
-              <el-button size="small" type="danger" @click="deleteTestCase(row)">{{ $t('common.delete') }}</el-button>
+              <div class="table-actions">
+                <el-button link type="primary" size="small" @click="editTestCase(row)">{{ $t('common.edit') }}</el-button>
+                <el-button link type="danger" size="small" @click="deleteTestCase(row)">{{ $t('common.delete') }}</el-button>
+              </div>
             </template>
           </el-table-column>
         </el-table>

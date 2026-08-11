@@ -36,9 +36,11 @@
             {{ formatDate(scope.row.created_at) }}
           </template>
         </el-table-column>
-        <el-table-column :label="$t('apiTesting.common.operation')" width="150">
+        <el-table-column :label="$t('apiTesting.common.operation')" width="160">
           <template #default="scope">
-            <el-button link type="primary" @click="viewReportDetail(scope.row)">{{ $t('apiTesting.report.generateAndViewReport') }}</el-button>
+            <div class="table-actions">
+              <el-button link type="primary" size="small" @click="viewReportDetail(scope.row)">{{ $t('apiTesting.report.generateAndViewReport') }}</el-button>
+            </div>
           </template>
         </el-table-column>
       </el-table>

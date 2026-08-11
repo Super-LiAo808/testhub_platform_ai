@@ -96,33 +96,35 @@
         </el-table-column>
         <el-table-column :label="$t('appAutomation.common.operation')" width="180" fixed="right">
           <template #default="{ row }">
-            <el-button
-              v-if="row.status === 'running'"
-              type="warning"
-              size="small"
-              text
-              @click="stopExecution(row)"
-            >
-              {{ $t('appAutomation.common.stop') }}
-            </el-button>
-            <el-button
-              v-if="row.report_path"
-              type="primary"
-              size="small"
-              text
-              @click="viewReport(row)"
-            >
-              {{ $t('appAutomation.execution.viewReport') }}
-            </el-button>
-            <el-button
-              v-if="row.error_message"
-              type="danger"
-              size="small"
-              text
-              @click="viewError(row)"
-            >
-              {{ $t('appAutomation.execution.viewError') }}
-            </el-button>
+            <div class="table-actions">
+              <el-button
+                v-if="row.status === 'running'"
+                link
+                type="warning"
+                size="small"
+                @click="stopExecution(row)"
+              >
+                {{ $t('appAutomation.common.stop') }}
+              </el-button>
+              <el-button
+                v-if="row.report_path"
+                link
+                type="primary"
+                size="small"
+                @click="viewReport(row)"
+              >
+                {{ $t('appAutomation.execution.viewReport') }}
+              </el-button>
+              <el-button
+                v-if="row.error_message"
+                link
+                type="danger"
+                size="small"
+                @click="viewError(row)"
+              >
+                {{ $t('appAutomation.execution.viewError') }}
+              </el-button>
+            </div>
           </template>
         </el-table-column>
       </el-table>

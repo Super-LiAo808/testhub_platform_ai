@@ -90,20 +90,22 @@
             {{ formatDate(row.created_at) }}
           </template>
         </el-table-column>
-        <el-table-column :label="$t('reviewList.actions')" width="200" fixed="right">
+        <el-table-column :label="$t('reviewList.actions')" width="240" fixed="right">
           <template #default="{ row }">
-            <el-button link type="primary" @click="viewReview(row.id)">{{ $t('reviewList.detail') }}</el-button>
-            <el-button v-if="canReview(row)" link type="success" @click="submitReview(row)">{{ $t('reviewList.review') }}</el-button>
-            <el-button v-if="canEdit(row)" link type="warning" @click="editReview(row.id)">{{ $t('reviewList.edit') }}</el-button>
-            <el-popconfirm
-              v-if="canDelete(row)"
-              :title="$t('reviewList.deleteConfirm')"
-              @confirm="deleteReview(row.id)"
-            >
-              <template #reference>
-                <el-button link type="danger">{{ $t('reviewList.delete') }}</el-button>
-              </template>
-            </el-popconfirm>
+            <div class="table-actions">
+              <el-button link type="primary" size="small" @click="viewReview(row.id)">{{ $t('reviewList.detail') }}</el-button>
+              <el-button v-if="canReview(row)" link type="success" size="small" @click="submitReview(row)">{{ $t('reviewList.review') }}</el-button>
+              <el-button v-if="canEdit(row)" link type="warning" size="small" @click="editReview(row.id)">{{ $t('reviewList.edit') }}</el-button>
+              <el-popconfirm
+                v-if="canDelete(row)"
+                :title="$t('reviewList.deleteConfirm')"
+                @confirm="deleteReview(row.id)"
+              >
+                <template #reference>
+                  <el-button link type="danger" size="small">{{ $t('reviewList.delete') }}</el-button>
+                </template>
+              </el-popconfirm>
+            </div>
           </template>
         </el-table-column>
       </el-table>

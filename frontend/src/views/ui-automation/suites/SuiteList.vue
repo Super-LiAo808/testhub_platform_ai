@@ -63,20 +63,22 @@
         </el-table-column>
         <el-table-column prop="created_at" :label="$t('uiAutomation.common.createTime')" width="180" :formatter="formatDate" />
         <el-table-column prop="updated_at" :label="$t('uiAutomation.common.updateTime')" width="180" :formatter="formatDate" />
-        <el-table-column :label="$t('uiAutomation.common.operation')" width="240" fixed="right">
+        <el-table-column :label="$t('uiAutomation.common.operation')" width="200" fixed="right">
           <template #default="{ row }">
-            <el-button size="small" type="primary" @click="editSuite(row.id)">
-              <el-icon><Edit /></el-icon>
-              {{ $t('uiAutomation.common.edit') }}
-            </el-button>
-            <el-button size="small" type="success" @click="runSuite(row)">
-              <el-icon><RefreshRight /></el-icon>
-              {{ $t('uiAutomation.common.run') }}
-            </el-button>
-            <el-button size="small" type="danger" @click="deleteSuite(row.id)">
-              <el-icon><Delete /></el-icon>
-              {{ $t('uiAutomation.common.delete') }}
-            </el-button>
+            <div class="table-actions">
+              <el-button link type="primary" size="small" @click="editSuite(row.id)">
+                <el-icon><Edit /></el-icon>
+                {{ $t('uiAutomation.common.edit') }}
+              </el-button>
+              <el-button link type="success" size="small" @click="runSuite(row)">
+                <el-icon><RefreshRight /></el-icon>
+                {{ $t('uiAutomation.common.run') }}
+              </el-button>
+              <el-button link type="danger" size="small" @click="deleteSuite(row.id)">
+                <el-icon><Delete /></el-icon>
+                {{ $t('uiAutomation.common.delete') }}
+              </el-button>
+            </div>
           </template>
         </el-table-column>
       </el-table>
@@ -149,9 +151,11 @@
                   </el-table-column>
                   <el-table-column :label="$t('uiAutomation.common.operation')" width="80">
                     <template #default="{ row }">
-                      <el-button size="small" text @click.stop="addTestCase(row)">
-                        <el-icon><ArrowRight /></el-icon>
-                      </el-button>
+                      <div class="table-actions">
+                        <el-button size="small" text @click.stop="addTestCase(row)">
+                          <el-icon><ArrowRight /></el-icon>
+                        </el-button>
+                      </div>
                     </template>
                   </el-table-column>
                 </el-table>
@@ -177,30 +181,32 @@
                   </el-table-column>
                   <el-table-column :label="$t('uiAutomation.common.operation')" width="120">
                     <template #default="{ row, $index }">
-                      <el-button
-                        size="small"
-                        text
-                        @click="moveUp($index)"
-                        :disabled="$index === 0"
-                      >
-                        <el-icon><Top /></el-icon>
-                      </el-button>
-                      <el-button
-                        size="small"
-                        text
-                        @click="moveDown($index)"
-                        :disabled="$index === selectedTestCases.length - 1"
-                      >
-                        <el-icon><Bottom /></el-icon>
-                      </el-button>
-                      <el-button
-                        size="small"
-                        text
-                        type="danger"
-                        @click="removeTestCase($index)"
-                      >
-                        <el-icon><Delete /></el-icon>
-                      </el-button>
+                      <div class="table-actions">
+                        <el-button
+                          size="small"
+                          text
+                          @click="moveUp($index)"
+                          :disabled="$index === 0"
+                        >
+                          <el-icon><Top /></el-icon>
+                        </el-button>
+                        <el-button
+                          size="small"
+                          text
+                          @click="moveDown($index)"
+                          :disabled="$index === selectedTestCases.length - 1"
+                        >
+                          <el-icon><Bottom /></el-icon>
+                        </el-button>
+                        <el-button
+                          size="small"
+                          text
+                          type="danger"
+                          @click="removeTestCase($index)"
+                        >
+                          <el-icon><Delete /></el-icon>
+                        </el-button>
+                      </div>
                     </template>
                   </el-table-column>
                 </el-table>

@@ -62,11 +62,13 @@
         <el-table-column :label="$t('appAutomation.common.createTime')" min-width="150">
           <template #default="{ row }">{{ formatDateTime(row.created_at) }}</template>
         </el-table-column>
-        <el-table-column :label="$t('appAutomation.common.operation')" min-width="150">
+        <el-table-column :label="$t('appAutomation.common.operation')" width="180" fixed="right">
           <template #default="{ row }">
-            <el-button type="primary" link size="small" @click="viewDetail(row)">{{ $t('appAutomation.common.details') }}</el-button>
-            <el-button type="warning" link size="small" @click="openEditDialog(row)">{{ $t('appAutomation.common.edit') }}</el-button>
-            <el-button type="danger" link size="small" @click="handleDelete(row)">{{ $t('appAutomation.common.delete') }}</el-button>
+            <div class="table-actions">
+              <el-button link type="primary" size="small" @click="viewDetail(row)">{{ $t('appAutomation.common.details') }}</el-button>
+              <el-button link type="primary" size="small" @click="openEditDialog(row)">{{ $t('appAutomation.common.edit') }}</el-button>
+              <el-button link type="danger" size="small" @click="handleDelete(row)">{{ $t('appAutomation.common.delete') }}</el-button>
+            </div>
           </template>
         </el-table-column>
       </el-table>

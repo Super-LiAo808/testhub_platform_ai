@@ -134,12 +134,13 @@
               </el-input>
             </template>
           </el-table-column>
-          <el-table-column :label="$t('execution.actions')" width="180" fixed="right" class-name="action-col">
+          <el-table-column :label="$t('execution.actions')" width="160" fixed="right" class-name="action-col">
             <template #default="scope">
-              <div class="action-buttons">
+              <div class="table-actions">
                 <el-button
-                  size="small"
+                  link
                   type="primary"
+                  size="small"
                   :icon="Check"
                   :loading="savingId === scope.row.id"
                   :disabled="!isRowDirty(scope.row)"
@@ -147,6 +148,8 @@
                   {{ $t('common.save') }}
                 </el-button>
                 <el-button
+                  link
+                  type="primary"
                   size="small"
                   :icon="Clock"
                   @click="viewCaseHistory(scope.row)">
@@ -821,13 +824,6 @@ onMounted(() => {
 /* 操作列：两按钮单行 */
 :deep(.action-col .cell) {
   white-space: nowrap;
-}
-
-.action-buttons {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  justify-content: center;
 }
 
 /* —— 分页 —— */

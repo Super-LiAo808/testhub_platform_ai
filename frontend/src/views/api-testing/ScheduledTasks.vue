@@ -84,25 +84,27 @@
             {{ formatDateTime(scope.row.last_run_time) }}
           </template>
         </el-table-column>
-        <el-table-column :label="$t('apiTesting.common.operation')" width="200" fixed="right">
+        <el-table-column :label="$t('apiTesting.common.operation')" width="150" fixed="right">
           <template #default="scope">
-            <el-button size="small" @click="runTaskNow(scope.row)" :loading="scope.row.running">
-              {{ $t('apiTesting.scheduledTask.runNow') }}
-            </el-button>
-            <el-dropdown @command="(command) => handleTaskAction(command, scope.row)">
-              <el-button size="small">
-                {{ $t('apiTesting.common.more') }}<el-icon><arrow-down /></el-icon>
+            <div class="table-actions">
+              <el-button link type="primary" size="small" @click="runTaskNow(scope.row)" :loading="scope.row.running">
+                {{ $t('apiTesting.scheduledTask.runNow') }}
               </el-button>
-              <template #dropdown>
-                <el-dropdown-menu>
-                  <el-dropdown-item command="edit">{{ $t('apiTesting.common.edit') }}</el-dropdown-item>
-                  <el-dropdown-item command="pause" v-if="scope.row.status === 'ACTIVE'">{{ $t('apiTesting.scheduledTask.pause') }}</el-dropdown-item>
-                  <el-dropdown-item command="activate" v-if="scope.row.status === 'PAUSED'">{{ $t('apiTesting.scheduledTask.activate') }}</el-dropdown-item>
-                  <el-dropdown-item command="logs">{{ $t('apiTesting.scheduledTask.executionLogs') }}</el-dropdown-item>
-                  <el-dropdown-item command="delete" divided>{{ $t('apiTesting.common.delete') }}</el-dropdown-item>
-                </el-dropdown-menu>
-              </template>
-            </el-dropdown>
+              <el-dropdown @command="(command) => handleTaskAction(command, scope.row)">
+                <el-button link size="small">
+                  {{ $t('apiTesting.common.more') }}<el-icon><arrow-down /></el-icon>
+                </el-button>
+                <template #dropdown>
+                  <el-dropdown-menu>
+                    <el-dropdown-item command="edit">{{ $t('apiTesting.common.edit') }}</el-dropdown-item>
+                    <el-dropdown-item command="pause" v-if="scope.row.status === 'ACTIVE'">{{ $t('apiTesting.scheduledTask.pause') }}</el-dropdown-item>
+                    <el-dropdown-item command="activate" v-if="scope.row.status === 'PAUSED'">{{ $t('apiTesting.scheduledTask.activate') }}</el-dropdown-item>
+                    <el-dropdown-item command="logs">{{ $t('apiTesting.scheduledTask.executionLogs') }}</el-dropdown-item>
+                    <el-dropdown-item command="delete" divided>{{ $t('apiTesting.common.delete') }}</el-dropdown-item>
+                  </el-dropdown-menu>
+                </template>
+              </el-dropdown>
+            </div>
           </template>
         </el-table-column>
       </el-table>

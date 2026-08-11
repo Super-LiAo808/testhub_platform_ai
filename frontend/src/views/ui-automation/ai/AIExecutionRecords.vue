@@ -45,14 +45,16 @@
         </el-table-column>
         <el-table-column prop="start_time" :label="$t('uiAutomation.ai.executionRecords.startTime')" width="180" :formatter="formatDate" />
         <el-table-column prop="executed_by.username" :label="$t('uiAutomation.ai.executionRecords.executor')" width="120" />
-        <el-table-column :label="$t('uiAutomation.common.operation')" width="200" fixed="right">
+        <el-table-column :label="$t('uiAutomation.common.operation')" width="160" fixed="right">
           <template #default="{ row }">
-            <el-button size="small" @click="viewDetail(row)">
-              {{ $t('uiAutomation.ai.executionRecords.viewDetail') }}
-            </el-button>
-            <el-button size="small" type="success" @click="viewReport(row)">
-              {{ $t('uiAutomation.ai.executionRecords.viewReport') }}
-            </el-button>
+            <div class="table-actions">
+              <el-button link type="primary" size="small" @click="viewDetail(row)">
+                {{ $t('uiAutomation.ai.executionRecords.viewDetail') }}
+              </el-button>
+              <el-button link type="success" size="small" @click="viewReport(row)">
+                {{ $t('uiAutomation.ai.executionRecords.viewReport') }}
+              </el-button>
+            </div>
           </template>
         </el-table-column>
       </el-table>

@@ -24,6 +24,12 @@ from .views import (
     UiDashboardViewSet
 )
 from .views_config import EnvironmentConfigViewSet, AIIntelligentModeConfigViewSet
+from .views_pipeline import (
+    UIActionTraceViewSet,
+    RecordingSessionViewSet,
+    FailureDiagnosisViewSet,
+    AutoFixProposalViewSet,
+)
 
 router = DefaultRouter()
 router.register(r'dashboard', UiDashboardViewSet, basename='dashboard')
@@ -46,6 +52,10 @@ router.register(r'ai-cases', AICaseViewSet, basename='ai-cases')
 router.register(r'ai-case-generation', AICaseViewSet, basename='ai-case-generation')
 router.register(r'notification-logs', UiNotificationLogViewSet)
 router.register(r'operation-records', OperationRecordViewSet)
+router.register(r'action-traces', UIActionTraceViewSet, basename='action-traces')
+router.register(r'recording-sessions', RecordingSessionViewSet, basename='recording-sessions')
+router.register(r'failure-diagnoses', FailureDiagnosisViewSet, basename='failure-diagnoses')
+router.register(r'auto-fix-proposals', AutoFixProposalViewSet, basename='auto-fix-proposals')
 
 
 # Configuration Center APIs
@@ -54,8 +64,40 @@ router.register(r'config/ai-mode', AIIntelligentModeConfigViewSet, basename='con
 router.register(r'ai-models', AIIntelligentModeConfigViewSet, basename='ai-models')
 
 urlpatterns = [
+    # 兼容无尾斜杠 POST，避免 APPEND_SLASH 导致 405/500
+    path(
+        'elements/scan-page',
+        ElementViewSet.as_view({'post': 'scan_page'}),
+        name='element-scan-page-noslash',
+    ),
+    path(
+        'elements/scan-page/',
+        ElementViewSet.as_view({'post': 'scan_page'}),
+        name='element-scan-page-slash',
+    ),
+    path(
+        'elements/scan-jobs',
+        ElementViewSet.as_view({'get': 'scan_job_list'}),
+        name='element-scan-jobs-list-noslash',
+    ),
+    path(
+        'elements/scan-jobs/',
+        ElementViewSet.as_view({'get': 'scan_job_list'}),
+        name='element-scan-jobs-list-slash',
+    ),
+    path(
+        'elements/scan-jobs/<int:job_id>',
+        ElementViewSet.as_view({'get': 'scan_job_detail'}),
+        name='element-scan-job-noslash',
+    ),
+    path(
+        'elements/scan-jobs/<int:job_id>/',
+        ElementViewSet.as_view({'get': 'scan_job_detail'}),
+        name='element-scan-job-slash',
+    ),
     path('', include(router.urls)),
 ]
 
-# 添加媒体文件路由
-urlpatterns += static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)
+# 添加媒体文件路由（仅 DEBUG；生产应由 Nginx/反向代理托管 media）
+if settings.DEBUG:
+    urlpatterns += static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)

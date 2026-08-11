@@ -27,13 +27,15 @@
             {{ formatDate(row.created_at) }}
           </template>
         </el-table-column>
-        <el-table-column :label="$t('apiTesting.aiServiceConfig.operation')" width="200" fixed="right">
+        <el-table-column :label="$t('apiTesting.aiServiceConfig.operation')" width="220" fixed="right">
           <template #default="{ row }">
-            <el-button size="small" @click="testConnection(row)" :loading="testing[row.id]">
-              {{ $t('apiTesting.aiServiceConfig.testConnection') }}
-            </el-button>
-            <el-button size="small" @click="editConfig(row)">{{ $t('apiTesting.aiServiceConfig.edit') }}</el-button>
-            <el-button size="small" type="danger" @click="deleteConfig(row.id)">{{ $t('apiTesting.aiServiceConfig.delete') }}</el-button>
+            <div class="table-actions">
+              <el-button link type="primary" size="small" @click="testConnection(row)" :loading="testing[row.id]">
+                {{ $t('apiTesting.aiServiceConfig.testConnection') }}
+              </el-button>
+              <el-button link type="primary" size="small" @click="editConfig(row)">{{ $t('apiTesting.aiServiceConfig.edit') }}</el-button>
+              <el-button link type="danger" size="small" @click="deleteConfig(row.id)">{{ $t('apiTesting.aiServiceConfig.delete') }}</el-button>
+            </div>
           </template>
         </el-table-column>
       </el-table>

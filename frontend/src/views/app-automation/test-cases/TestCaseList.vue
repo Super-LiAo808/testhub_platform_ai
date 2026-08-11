@@ -130,17 +130,19 @@
           {{ formatDateTime(row.updated_at) }}
         </template>
       </el-table-column>
-      <el-table-column :label="$t('appAutomation.common.operation')" width="200">
+      <el-table-column :label="$t('appAutomation.common.operation')" width="180">
         <template #default="{ row }">
-          <el-button link type="success" size="small" @click="runCase(row)">
-            {{ $t('appAutomation.common.run') }}
-          </el-button>
-          <el-button link type="primary" size="small" @click="editCase(row)">
-            {{ $t('appAutomation.common.edit') }}
-          </el-button>
-          <el-button link type="danger" size="small" @click="deleteCase(row)">
-            {{ $t('appAutomation.common.delete') }}
-          </el-button>
+          <div class="table-actions">
+            <el-button link type="success" size="small" @click="runCase(row)">
+              {{ $t('appAutomation.common.run') }}
+            </el-button>
+            <el-button link type="primary" size="small" @click="editCase(row)">
+              {{ $t('appAutomation.common.edit') }}
+            </el-button>
+            <el-button link type="danger" size="small" @click="deleteCase(row)">
+              {{ $t('appAutomation.common.delete') }}
+            </el-button>
+          </div>
         </template>
       </el-table-column>
     </el-table>
@@ -213,26 +215,28 @@
             {{ row.finished_at ? formatDateTime(row.finished_at) : '-' }}
           </template>
         </el-table-column>
-        <el-table-column :label="$t('appAutomation.common.operation')" width="150">
+        <el-table-column :label="$t('appAutomation.common.operation')" width="140">
           <template #default="{ row }">
-            <el-button
-              v-if="row.status === 'completed' || row.status === 'error'"
-              link
-              type="primary"
-              size="small"
-              @click="viewReport(row)"
-            >
-              {{ $t('appAutomation.testCase.viewReport') }}
-            </el-button>
-            <el-button
-              v-if="row.status === 'running'"
-              link
-              type="danger"
-              size="small"
-              @click="stopTest(row)"
-            >
-              {{ $t('appAutomation.common.stop') }}
-            </el-button>
+            <div class="table-actions">
+              <el-button
+                v-if="row.status === 'completed' || row.status === 'error'"
+                link
+                type="primary"
+                size="small"
+                @click="viewReport(row)"
+              >
+                {{ $t('appAutomation.testCase.viewReport') }}
+              </el-button>
+              <el-button
+                v-if="row.status === 'running'"
+                link
+                type="danger"
+                size="small"
+                @click="stopTest(row)"
+              >
+                {{ $t('appAutomation.common.stop') }}
+              </el-button>
+            </div>
           </template>
         </el-table-column>
       </el-table>

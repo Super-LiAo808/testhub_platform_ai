@@ -70,7 +70,13 @@ class AppTestConfigSerializer(serializers.ModelSerializer):
     
     class Meta:
         model = AppTestConfig
-        fields = ['id', 'adb_path', 'created_at', 'updated_at']
+        fields = [
+            'id', 'adb_path',
+            'appium_server_url', 'appium_command', 'appium_auto_start',
+            'android_sdk_path',
+            'scrcpy_path', 'scrcpy_server_path', 'scrcpy_max_size', 'scrcpy_bit_rate',
+            'created_at', 'updated_at',
+        ]
         read_only_fields = ['id', 'created_at', 'updated_at']
 
 

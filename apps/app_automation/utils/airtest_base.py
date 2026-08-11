@@ -21,13 +21,17 @@ logger = logging.getLogger(__name__)
 class AirtestBase:
     """Airtest基础类，提供Airtest的基本设置和常用功能"""
     
-    # 默认配置
+    # 默认配置（优先 ADB 截屏/触摸，避开小米等机型上不稳定的 minicap）
     DEFAULT_CONFIG = {
         'RETRY_COUNT': 3,
         'RETRY_INTERVAL': 5,
         'DEVICE_CONNECT_TIMEOUT': 30,
-        'FIND_TIMEOUT': 10,
-        'CLICK_DELAY': 0.5,
+        'FIND_TIMEOUT': 6,
+        'CLICK_DELAY': 0.35,
+        'CAP_METHOD': 'ADBCAP',
+        'TOUCH_METHOD': 'ADBTOUCH',
+        'ORI_METHOD': 'ADBORI',
+        'IME_METHOD': 'ADBIME',
     }
     
     def __init__(self, device_id: Optional[str] = None, screenshots_dir: Optional[str] = None, username: Optional[str] = None):
@@ -75,18 +79,29 @@ class AirtestBase:
         
         for attempt in range(retry_count):
             try:
+                connect_kwargs = {
+                    'cap_method': cfg.get('CAP_METHOD', 'ADBCAP'),
+                    'touch_method': cfg.get('TOUCH_METHOD', 'ADBTOUCH'),
+                    'ori_method': cfg.get('ORI_METHOD', 'ADBORI'),
+                    'ime_method': cfg.get('IME_METHOD', 'ADBIME'),
+                }
                 if self.device_id:
-                    logger.info(f"尝试连接到设备: {self.device_id} (尝试 {attempt+1}/{retry_count})")
+                    logger.info(
+                        f"尝试连接到设备: {self.device_id} "
+                        f"(尝试 {attempt+1}/{retry_count}, {connect_kwargs})"
+                    )
                     success = self._init_device_with_timeout(
                         platform='Android',
                         uuid=self.device_id,
-                        timeout=timeout
+                        timeout=timeout,
+                        **connect_kwargs,
                     )
                 else:
                     logger.info(f"尝试连接到默认设备 (尝试 {attempt+1}/{retry_count})")
                     success = self._init_device_with_timeout(
                         platform='Android',
-                        timeout=timeout
+                        timeout=timeout,
+                        **connect_kwargs,
                     )
                 
                 if not success:
@@ -96,6 +111,9 @@ class AirtestBase:
                 ST.FIND_TIMEOUT = cfg['FIND_TIMEOUT']
                 if hasattr(ST, 'CLICK_DELAY'):
                     ST.CLICK_DELAY = cfg['CLICK_DELAY']
+
+                # 二次确保截屏方法为 ADBCAP（防止仍回落到失败的 minicap）
+                self._ensure_stable_cap_method()
                 
                 self.is_connected = True
                 logger.info("Airtest环境设置完成，设备已连接")
@@ -112,8 +130,33 @@ class AirtestBase:
                     return False
         
         return False
+
+    def _ensure_stable_cap_method(self) -> None:
+        """强制使用 ADBCAP，并做一次截屏自检。"""
+        try:
+            device = G.DEVICE
+            if device is None:
+                return
+            # 优先指定 ADBCAP；失败再试 JAVACAP
+            for method in ('ADBCAP', 'JAVACAP'):
+                try:
+                    if hasattr(device, 'cap_method'):
+                        device.cap_method = method
+                    # 触发初始化并验证能拿到帧
+                    if hasattr(device, 'snapshot'):
+                        frame = device.snapshot()
+                    else:
+                        frame = snapshot()
+                    if frame is not None:
+                        logger.info(f"截屏方法就绪: {method}")
+                        return
+                except Exception as exc:
+                    logger.warning(f"截屏方法 {method} 不可用: {exc}")
+            logger.warning("截屏自检未完全通过，后续图片匹配可能不稳定")
+        except Exception as exc:
+            logger.warning(f"确保截屏方法失败: {exc}")
     
-    def _init_device_with_timeout(self, platform: str, uuid: Optional[str] = None, timeout: int = 30) -> bool:
+    def _init_device_with_timeout(self, platform: str, uuid: Optional[str] = None, timeout: int = 30, **kwargs) -> bool:
         """
         使用超时机制初始化设备
         
@@ -121,6 +164,7 @@ class AirtestBase:
             platform: 平台类型，如 'Android'
             uuid: 设备UUID（可选）
             timeout: 超时时间（秒）
+            **kwargs: 传给 init_device 的平台参数（cap_method 等）
             
         Returns:
             是否初始化成功
@@ -130,11 +174,11 @@ class AirtestBase:
         
         def call_init_device():
             try:
-                logger.info(f"线程中开始调用 init_device()...")
+                logger.info(f"线程中开始调用 init_device() kwargs={kwargs}...")
                 if uuid:
-                    init_device(platform=platform, uuid=uuid)
+                    init_device(platform=platform, uuid=uuid, **kwargs)
                 else:
-                    init_device(platform=platform)
+                    init_device(platform=platform, **kwargs)
                 logger.info(f"线程中 init_device() 调用完成")
                 result_queue.put(True)
             except Exception as e:

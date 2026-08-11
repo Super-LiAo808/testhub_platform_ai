@@ -96,24 +96,26 @@
             {{ formatDateTime(scope.row.last_run_time) }}
           </template>
         </el-table-column>
-        <el-table-column :label="$t('uiAutomation.common.operation')" width="200" fixed="right">
+        <el-table-column :label="$t('uiAutomation.common.operation')" width="160" fixed="right">
           <template #default="scope">
-            <el-button size="small" @click="runTaskNow(scope.row)" :loading="scope.row.running">
-              {{ $t('uiAutomation.scheduledTask.runNow') }}
-            </el-button>
-            <el-dropdown @command="(command) => handleTaskAction(command, scope.row)">
-              <el-button size="small">
-                {{ $t('uiAutomation.scheduledTask.more') }}<el-icon><arrow-down /></el-icon>
+            <div class="table-actions">
+              <el-button link type="primary" size="small" @click="runTaskNow(scope.row)" :loading="scope.row.running">
+                {{ $t('uiAutomation.scheduledTask.runNow') }}
               </el-button>
-              <template #dropdown>
-                <el-dropdown-menu>
-                  <el-dropdown-item command="edit">{{ $t('uiAutomation.scheduledTask.actions.edit') }}</el-dropdown-item>
-                  <el-dropdown-item command="pause" v-if="scope.row.status === 'ACTIVE'">{{ $t('uiAutomation.scheduledTask.actions.pause') }}</el-dropdown-item>
-                  <el-dropdown-item command="resume" v-if="scope.row.status === 'PAUSED'">{{ $t('uiAutomation.scheduledTask.actions.resume') }}</el-dropdown-item>
-                  <el-dropdown-item command="delete" divided>{{ $t('uiAutomation.scheduledTask.actions.delete') }}</el-dropdown-item>
-                </el-dropdown-menu>
-              </template>
-            </el-dropdown>
+              <el-dropdown @command="(command) => handleTaskAction(command, scope.row)">
+                <el-button link size="small">
+                  {{ $t('uiAutomation.scheduledTask.more') }}<el-icon><arrow-down /></el-icon>
+                </el-button>
+                <template #dropdown>
+                  <el-dropdown-menu>
+                    <el-dropdown-item command="edit">{{ $t('uiAutomation.scheduledTask.actions.edit') }}</el-dropdown-item>
+                    <el-dropdown-item command="pause" v-if="scope.row.status === 'ACTIVE'">{{ $t('uiAutomation.scheduledTask.actions.pause') }}</el-dropdown-item>
+                    <el-dropdown-item command="resume" v-if="scope.row.status === 'PAUSED'">{{ $t('uiAutomation.scheduledTask.actions.resume') }}</el-dropdown-item>
+                    <el-dropdown-item command="delete" divided>{{ $t('uiAutomation.scheduledTask.actions.delete') }}</el-dropdown-item>
+                  </el-dropdown-menu>
+                </template>
+              </el-dropdown>
+            </div>
           </template>
         </el-table-column>
       </el-table>

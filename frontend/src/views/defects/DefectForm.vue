@@ -152,8 +152,10 @@
               </el-table-column>
               <el-table-column label="操作" width="120" align="center">
                 <template #default="{ row }">
-                  <el-link v-if="row.existing" :href="row.url" type="primary" target="_blank" :underline="false">查看</el-link>
-                  <el-button v-else link type="danger" @click="removePendingFile(row.uid)">移除</el-button>
+                  <div class="table-actions">
+                    <el-link v-if="row.existing" :href="row.url" type="primary" target="_blank" :underline="false">查看</el-link>
+                    <el-button v-else link type="danger" size="small" @click="removePendingFile(row.uid)">移除</el-button>
+                  </div>
                 </template>
               </el-table-column>
             </el-table>

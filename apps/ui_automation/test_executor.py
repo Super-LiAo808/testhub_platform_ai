@@ -239,7 +239,10 @@ class TestExecutor:
                         'id': step.element.id,
                         'name': step.element.name,
                         'locator_value': step.element.locator_value,
-                        'locator_strategy': step.element.locator_strategy.name if step.element.locator_strategy else 'css'
+                        'locator_strategy': step.element.locator_strategy.name if step.element.locator_strategy else 'css',
+                        'backup_locators': step.element.backup_locators or [],
+                        'wait_timeout': step.element.wait_timeout,
+                        'force_action': step.element.force_action,
                     }
 
                 case_data['steps'].append(step_data)
@@ -1327,7 +1330,10 @@ class TestExecutor:
                         'id': step.element.id,
                         'name': step.element.name,
                         'locator_value': step.element.locator_value,
-                        'locator_strategy': step.element.locator_strategy.name if step.element.locator_strategy else 'css'
+                        'locator_strategy': step.element.locator_strategy.name if step.element.locator_strategy else 'css',
+                        'backup_locators': step.element.backup_locators or [],
+                        'wait_timeout': step.element.wait_timeout,
+                        'force_action': step.element.force_action,
                     }
 
                 case_data['steps'].append(step_data)

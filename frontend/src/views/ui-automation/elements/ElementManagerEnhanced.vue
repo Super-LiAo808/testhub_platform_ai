@@ -13,6 +13,14 @@
             />
           </el-select>
           <div class="header-actions">
+            <el-badge :value="activeScanJobCount" :hidden="!activeScanJobCount" :max="99">
+              <el-button size="small" @click="openScanJobsDrawer" :disabled="!selectedProject" title="扫描任务">
+                <el-icon><Clock /></el-icon>
+              </el-button>
+            </el-badge>
+            <el-button type="warning" size="small" @click="openScanDialog" :disabled="!selectedProject" title="扫描页面元素">
+              <el-icon><Search /></el-icon>
+            </el-button>
             <el-button type="primary" size="small" @click="showCreatePageDialog = true" :title="$t('uiAutomation.element.createPage')">
               <el-icon><Folder /></el-icon>
             </el-button>
@@ -62,6 +70,9 @@
 
                 <span v-if="data.type === 'element'" class="element-type-tag" :class="data.element_type?.toLowerCase()">
                   {{ getElementTypeLabel(data.element_type) }}
+                </span>
+                <span v-if="data.type === 'element' && data.component_name" class="region-tag" :title="data.component_name">
+                  {{ data.component_name }}
                 </span>
               </div>
             </template>
@@ -225,6 +236,130 @@
       </template>
     </el-dialog>
 
+    <!-- 扫描页面对话框 -->
+    <el-dialog
+      v-model="showScanDialog"
+      title="扫描页面元素"
+      width="560px"
+      :close-on-click-modal="false"
+      :close-on-press-escape="!scanning"
+      @closed="resetScanForm"
+    >
+      <el-form ref="scanFormRef" :model="scanForm" :rules="scanRules" label-width="120px" :disabled="scanning">
+        <el-form-item label="页面 URL" prop="url">
+          <el-input v-model="scanForm.url" placeholder="例如 https://www.csdn.net/" clearable />
+        </el-form-item>
+        <el-form-item label="保存到分组">
+          <el-select v-model="scanForm.group_id" placeholder="不选则按 URL 自动创建单页分组" clearable style="width: 100%">
+            <el-option
+              v-for="page in getAllPages()"
+              :key="page.id"
+              :label="page.name"
+              :value="page.id"
+            />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="最大元素数">
+          <el-input-number v-model="scanForm.max_elements" :min="20" :max="500" :step="20" />
+        </el-form-item>
+        <el-form-item label="无头模式">
+          <el-switch v-model="scanForm.headless" disabled />
+          <span class="form-help-text" style="margin-left: 8px">服务端强制无头，避免并发弹出多个 Chromium</span>
+        </el-form-item>
+        <el-alert
+          type="info"
+          :closable="false"
+          show-icon
+          title="扫描以后台任务执行，提交后可在此查看进度；完成后自动写入元素库。不支持 localhost/内网地址（SSRF 防护）。"
+        />
+      </el-form>
+
+      <div v-if="scanning || scanJob" class="scan-progress">
+        <div class="scan-progress-title">
+          <span>{{ scanStatusText }}</span>
+          <span v-if="scanJob?.id" class="scan-job-id">任务 #{{ scanJob.id }}</span>
+        </div>
+        <el-progress
+          :percentage="scanProgress"
+          :status="scanProgressStatus"
+          :stroke-width="12"
+        />
+        <div v-if="scanJob?.message" class="scan-progress-msg">{{ scanJob.message }}</div>
+        <div v-if="scanJob?.error_message" class="scan-progress-err">{{ scanJob.error_message }}</div>
+      </div>
+
+      <div v-if="scanResultPreview.length" class="scan-preview">
+        <div class="scan-preview-title">预览（最多 30 条）</div>
+        <el-table :data="scanResultPreview" size="small" max-height="220" stripe>
+          <el-table-column prop="name" label="名称" min-width="120" show-overflow-tooltip />
+          <el-table-column prop="element_type" label="类型" width="90" />
+          <el-table-column prop="component_name" label="区域" width="100" show-overflow-tooltip />
+        </el-table>
+      </div>
+      <template #footer>
+        <el-button @click="showScanDialog = false">{{ scanning ? '后台运行' : '关闭' }}</el-button>
+        <el-button type="primary" :loading="scanning" :disabled="scanning" @click="runPageScan">
+          {{ scanning ? '扫描中…' : '开始扫描' }}
+        </el-button>
+      </template>
+    </el-dialog>
+
+    <!-- 扫描任务列表 -->
+    <el-drawer
+      v-model="showScanJobsDrawer"
+      title="页面扫描任务"
+      size="520px"
+      :append-to-body="true"
+    >
+      <div class="scan-jobs-toolbar">
+        <span class="scan-jobs-hint">进行中 {{ activeScanJobCount }} 个 · 关闭对话框后任务仍会继续</span>
+        <el-button size="small" :loading="scanJobsLoading" @click="loadScanJobs">刷新</el-button>
+      </div>
+      <el-table :data="scanJobs" size="small" v-loading="scanJobsLoading" max-height="calc(100vh - 160px)" stripe>
+        <el-table-column prop="id" label="ID" width="58" />
+        <el-table-column label="状态" width="88">
+          <template #default="{ row }">
+            <el-tag :type="scanStatusTagType(row.status)" size="small">{{ scanStatusLabel(row.status) }}</el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column label="进度" width="110">
+          <template #default="{ row }">
+            <el-progress
+              :percentage="Number(row.progress || 0)"
+              :status="row.status === 'success' ? 'success' : (row.status === 'failed' ? 'exception' : undefined)"
+              :stroke-width="10"
+            />
+          </template>
+        </el-table-column>
+        <el-table-column prop="url" label="URL" min-width="140" show-overflow-tooltip />
+        <el-table-column label="说明" min-width="140" show-overflow-tooltip>
+          <template #default="{ row }">
+            <span>{{ row.message || row.error_message || '-' }}</span>
+          </template>
+        </el-table-column>
+        <el-table-column label="结果" width="100">
+          <template #default="{ row }">
+            <span v-if="row.result?.scanned_count != null">
+              {{ row.result.created || 0 }}/{{ row.result.updated || 0 }}
+            </span>
+            <span v-else>-</span>
+          </template>
+        </el-table-column>
+        <el-table-column label="操作" width="72" fixed="right">
+          <template #default="{ row }">
+            <el-button
+              link
+              type="primary"
+              size="small"
+              :disabled="!row.result?.group_id"
+              @click="focusScanResult(row)"
+            >定位</el-button>
+          </template>
+        </el-table-column>
+      </el-table>
+      <div class="scan-jobs-legend">结果列：新建 / 更新；失败时若已抽取元素仍会尽量入库。</div>
+    </el-drawer>
+
     <!-- 右键菜单 -->
     <ul v-show="showContextMenu" class="context-menu" :style="{ left: contextMenuX + 'px', top: contextMenuY + 'px' }">
       <li @click="addContextElement">{{ $t('uiAutomation.element.contextMenu.addElement') }}</li>
@@ -271,12 +406,12 @@
 </template>
 
 <script setup>
-import { ref, reactive, computed, onMounted, watch, nextTick } from 'vue'
+import { ref, reactive, computed, onMounted, onUnmounted, watch, nextTick } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import {
   Plus, FolderAdd, Document, Search, Edit, Delete,
-  Folder, Document as DocumentIcon, Operation, DocumentCopy, ArrowDown
+  Folder, Document as DocumentIcon, Operation, DocumentCopy, ArrowDown, Clock
 } from '@element-plus/icons-vue'
 import {
   getUiProjects,
@@ -293,7 +428,10 @@ import {
   deleteElementGroup,
   getLocatorStrategies,
   validateElementLocator,
-  generateElementSuggestions
+  generateElementSuggestions,
+  scanPageElements,
+  getPageScanJob,
+  listPageScanJobs
 } from '@/api/ui_automation'
 
 // 国际化
@@ -320,6 +458,65 @@ const elementHeaderFormRef = ref(null)
 // 对话框控制
 const showCreatePageDialog = ref(false)
 const showEditPageDialog = ref(false)
+const showScanDialog = ref(false)
+const showScanJobsDrawer = ref(false)
+const scanning = ref(false)
+const scanFormRef = ref(null)
+const scanResultPreview = ref([])
+const scanJob = ref(null)
+const scanPollTimer = ref(null)
+const scanJobs = ref([])
+const scanJobsLoading = ref(false)
+const scanJobsPollTimer = ref(null)
+const handledScanJobIds = ref(new Set())
+const scanForm = reactive({
+  url: '',
+  group_id: null,
+  max_elements: 200,
+  headless: true
+})
+const scanRules = {
+  url: [
+    { required: true, message: '请输入页面 URL', trigger: 'blur' }
+  ]
+}
+
+const scanProgress = computed(() => Number(scanJob.value?.progress || 0))
+const scanProgressStatus = computed(() => {
+  const st = scanJob.value?.status
+  if (st === 'success') return 'success'
+  if (st === 'failed') return 'exception'
+  return undefined
+})
+const scanStatusText = computed(() => {
+  const map = {
+    pending: '排队中',
+    running: '扫描中',
+    success: '扫描成功',
+    failed: '扫描失败',
+    cancelled: '已取消'
+  }
+  return map[scanJob.value?.status] || (scanning.value ? '提交中…' : '')
+})
+const activeScanJobCount = computed(() =>
+  (scanJobs.value || []).filter(j => j.status === 'pending' || j.status === 'running').length
+)
+
+const scanStatusLabel = (status) => ({
+  pending: '排队中',
+  running: '扫描中',
+  success: '成功',
+  failed: '失败',
+  cancelled: '已取消'
+}[status] || status || '-')
+
+const scanStatusTagType = (status) => ({
+  pending: 'info',
+  running: 'warning',
+  success: 'success',
+  failed: 'danger',
+  cancelled: 'info'
+}[status] || 'info')
 
 // 右键菜单
 const showContextMenu = ref(false)
@@ -497,6 +694,11 @@ onMounted(async () => {
   exposeToWindow()
 
   console.log('=== 组件挂载完成 ===')
+})
+
+onUnmounted(() => {
+  stopScanPolling()
+  stopScanJobsPolling()
 })
 
 // 加载项目列表
@@ -716,13 +918,15 @@ const loadElementTree = async () => {
 const onProjectChange = async () => {
   selectedElement.value = null
   suggestions.value = []
+  handledScanJobIds.value = new Set()
 
   console.log('=== 项目切换调试 ===')
   console.log('当前项目ID:', selectedProject.value)
 
   await Promise.all([
     loadPages(),
-    loadElementTree()
+    loadElementTree(),
+    loadScanJobs({ seedHandled: true })
   ])
 
   console.log('项目切换完成，检查treeData:', treeData.value)
@@ -752,6 +956,251 @@ const createEmptyElement = () => {
     wait_timeout: 5,
     force_action: false,  // 强制操作选项，默认禁用
     description: ''
+  }
+}
+
+const stopScanPolling = () => {
+  if (scanPollTimer.value) {
+    clearTimeout(scanPollTimer.value)
+    scanPollTimer.value = null
+  }
+}
+
+const stopScanJobsPolling = () => {
+  if (scanJobsPollTimer.value) {
+    clearTimeout(scanJobsPollTimer.value)
+    scanJobsPollTimer.value = null
+  }
+}
+
+const scheduleScanJobsPolling = () => {
+  stopScanJobsPolling()
+  if (activeScanJobCount.value > 0 || scanning.value) {
+    scanJobsPollTimer.value = setTimeout(() => {
+      loadScanJobs({ silent: true })
+    }, 2000)
+  }
+}
+
+const applyScanResultToTree = async (data, { notifySuccess = true, notifyPartial = false } = {}) => {
+  if (!data) return
+  scanResultPreview.value = data.preview || []
+  const created = data.created || 0
+  const updated = data.updated || 0
+  const scanned = data.scanned_count || 0
+  if (notifySuccess) {
+    ElMessage.success(`扫描完成：发现 ${scanned} 个，新建 ${created}，更新 ${updated}，跳过 ${data.skipped || 0}`)
+  } else if (notifyPartial && (created || updated)) {
+    ElMessage.warning(`扫描未完整完成，已入库新建 ${created}、更新 ${updated}`)
+  }
+  await Promise.all([loadPages(), loadElementTree()])
+  if (data.group_id) {
+    expandedKeys.value = Array.from(new Set([...(expandedKeys.value || []), data.group_id]))
+    treeKey.value += 1
+    await nextTick()
+    treeRef.value?.setCurrentKey?.(data.group_id)
+  }
+}
+
+const handleFinishedScanJob = async (job) => {
+  if (!job?.id) return
+  if (handledScanJobIds.value.has(job.id)) return
+  handledScanJobIds.value.add(job.id)
+
+  const result = job.result || {}
+  if (job.status === 'success') {
+    scanning.value = false
+    if (scanJob.value?.id === job.id) scanJob.value = job
+    await applyScanResultToTree(result, { notifySuccess: true })
+    return
+  }
+  if (job.status === 'failed' || job.status === 'cancelled') {
+    scanning.value = false
+    if (scanJob.value?.id === job.id) scanJob.value = job
+    const saved = (result.created || 0) + (result.updated || 0)
+    if (saved > 0) {
+      await applyScanResultToTree(result, { notifySuccess: false, notifyPartial: true })
+    }
+    ElMessage.error(job.error_message || job.message || '扫描失败')
+  }
+}
+
+const loadScanJobs = async ({ silent = false, seedHandled = false } = {}) => {
+  if (!selectedProject.value) {
+    scanJobs.value = []
+    return
+  }
+  if (!silent) scanJobsLoading.value = true
+  try {
+    const res = await listPageScanJobs({
+      project_id: selectedProject.value,
+      limit: 30
+    })
+    const items = res.data?.results || res.data || []
+    scanJobs.value = Array.isArray(items) ? items : []
+
+    // 同步对话框中的当前任务
+    if (scanJob.value?.id) {
+      const current = scanJobs.value.find(j => j.id === scanJob.value.id)
+      if (current) scanJob.value = current
+    }
+
+    if (seedHandled) {
+      const next = new Set(handledScanJobIds.value)
+      for (const job of scanJobs.value) {
+        if (job.status === 'success' || job.status === 'failed' || job.status === 'cancelled') {
+          next.add(job.id)
+        }
+      }
+      handledScanJobIds.value = next
+    } else {
+      for (const job of scanJobs.value) {
+        if (job.status === 'success' || job.status === 'failed' || job.status === 'cancelled') {
+          await handleFinishedScanJob(job)
+        }
+      }
+    }
+  } catch (error) {
+    if (!silent) {
+      console.error('加载扫描任务失败:', error)
+    }
+  } finally {
+    if (!silent) scanJobsLoading.value = false
+    scheduleScanJobsPolling()
+  }
+}
+
+const openScanJobsDrawer = async () => {
+  if (!selectedProject.value) {
+    ElMessage.warning('请先选择项目')
+    return
+  }
+  showScanJobsDrawer.value = true
+  await loadScanJobs()
+}
+
+const focusScanResult = async (job) => {
+  const groupId = job?.result?.group_id
+  if (!groupId) return
+  showScanJobsDrawer.value = false
+  await Promise.all([loadPages(), loadElementTree()])
+  expandedKeys.value = Array.from(new Set([...(expandedKeys.value || []), groupId]))
+  treeKey.value += 1
+  await nextTick()
+  treeRef.value?.setCurrentKey?.(groupId)
+}
+
+const pollScanJob = async (jobId) => {
+  stopScanPolling()
+  try {
+    const res = await getPageScanJob(jobId)
+    const job = res.data || {}
+    scanJob.value = job
+    // 同步进列表
+    const idx = scanJobs.value.findIndex(j => j.id === jobId)
+    if (idx >= 0) scanJobs.value[idx] = job
+    else scanJobs.value = [job, ...scanJobs.value]
+
+    if (job.status === 'success' || job.status === 'failed' || job.status === 'cancelled') {
+      scanning.value = false
+      await handleFinishedScanJob(job)
+      scheduleScanJobsPolling()
+      return
+    }
+    scanPollTimer.value = setTimeout(() => pollScanJob(jobId), 2000)
+  } catch (error) {
+    // 单次查询失败不立刻终止后台任务，继续列表轮询
+    scheduleScanJobsPolling()
+    scanPollTimer.value = setTimeout(() => pollScanJob(jobId), 3000)
+    console.warn('查询扫描任务失败，稍后重试:', error)
+  }
+}
+
+const openScanDialog = () => {
+  if (!selectedProject.value) {
+    ElMessage.warning('请先选择项目')
+    return
+  }
+  scanResultPreview.value = []
+  // 不重置正在运行的任务状态，便于对话框与任务面板共用
+  if (!scanning.value) {
+    scanJob.value = null
+  }
+  if (rightClickedNode.value?.type === 'page' && rightClickedNode.value.id !== 'unassigned') {
+    scanForm.group_id = rightClickedNode.value.id
+  } else if (selectedElement.value?.group_id) {
+    scanForm.group_id = selectedElement.value.group_id
+  }
+  showScanDialog.value = true
+}
+
+const resetScanForm = () => {
+  // 关闭对话框不取消后台任务/轮询
+  scanForm.url = ''
+  scanForm.group_id = null
+  scanForm.max_elements = 200
+  scanForm.headless = true
+  scanResultPreview.value = []
+}
+
+const runPageScan = async () => {
+  if (!selectedProject.value) {
+    ElMessage.warning('请先选择项目')
+    return
+  }
+  if (scanning.value) return
+  try {
+    await scanFormRef.value?.validate()
+  } catch (_) {
+    return
+  }
+
+  scanning.value = true
+  scanResultPreview.value = []
+  scanJob.value = { status: 'pending', progress: 0, message: '正在提交任务…' }
+  try {
+    const res = await scanPageElements({
+      project_id: selectedProject.value,
+      url: scanForm.url.trim(),
+      group_id: scanForm.group_id || undefined,
+      max_elements: scanForm.max_elements,
+      headless: scanForm.headless
+    })
+    const data = res.data || {}
+    const jobId = data.job_id || data.job?.id
+
+    if (!jobId) {
+      if (typeof data.scanned_count === 'number' || typeof data.created === 'number') {
+        scanJob.value = {
+          status: 'success',
+          progress: 100,
+          message: `扫描完成：发现 ${data.scanned_count || 0} 个元素`,
+          result: data
+        }
+        scanning.value = false
+        await applyScanResultToTree(data, { notifySuccess: true })
+        await loadScanJobs({ silent: true })
+        return
+      }
+      throw new Error(data.error || data.message || '未返回扫描任务 ID')
+    }
+
+    scanJob.value = data.job || { id: jobId, status: 'pending', progress: 0, message: data.message || '任务已提交' }
+    scanJobs.value = [scanJob.value, ...scanJobs.value.filter(j => j.id !== jobId)]
+    ElMessage.info('扫描任务已提交，可在「扫描任务」中查看进度')
+    showScanJobsDrawer.value = true
+    scheduleScanJobsPolling()
+    await pollScanJob(jobId)
+  } catch (error) {
+    scanning.value = false
+    scanJob.value = {
+      ...(scanJob.value || {}),
+      status: 'failed',
+      progress: 100,
+      message: '扫描失败',
+      error_message: error.response?.data?.error || error.message || '提交扫描任务失败'
+    }
+    ElMessage.error(error.response?.data?.error || error.message || '提交扫描任务失败')
   }
 }
 
@@ -1385,6 +1834,106 @@ const updatePage = async () => {
   border-radius: 4px;
   background-color: #ecf5ff;
   color: #409eff;
+}
+
+.region-tag {
+  font-size: 11px;
+  padding: 1px 5px;
+  border-radius: 4px;
+  background-color: #f4f4f5;
+  color: #909399;
+  max-width: 72px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.scan-progress {
+  margin: 12px 0 4px;
+  padding: 12px;
+  background: #f5f7fa;
+  border-radius: 6px;
+}
+.scan-progress-title {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+  font-size: 13px;
+  color: #303133;
+  font-weight: 500;
+}
+.scan-job-id {
+  color: #909399;
+  font-weight: 400;
+  font-size: 12px;
+}
+.scan-progress-msg {
+  margin-top: 8px;
+  font-size: 12px;
+  color: #606266;
+}
+.scan-progress-err {
+  margin-top: 6px;
+  font-size: 12px;
+  color: #f56c6c;
+}
+
+.scan-progress {
+  margin: 12px 0 4px;
+  padding: 12px;
+  background: #f5f7fa;
+  border-radius: 6px;
+}
+.scan-progress-title {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+  font-size: 13px;
+  color: #303133;
+  font-weight: 500;
+}
+.scan-job-id {
+  color: #909399;
+  font-weight: 400;
+  font-size: 12px;
+}
+.scan-progress-msg {
+  margin-top: 8px;
+  font-size: 12px;
+  color: #606266;
+}
+.scan-progress-err {
+  margin-top: 6px;
+  font-size: 12px;
+  color: #f56c6c;
+}
+
+.scan-jobs-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+  gap: 8px;
+}
+.scan-jobs-hint {
+  font-size: 12px;
+  color: #909399;
+}
+.scan-jobs-legend {
+  margin-top: 10px;
+  font-size: 12px;
+  color: #909399;
+}
+
+.scan-preview {
+  margin-top: 12px;
+}
+.scan-preview-title {
+  font-size: 13px;
+  color: #606266;
+  margin-bottom: 6px;
 }
 
 .main-content {

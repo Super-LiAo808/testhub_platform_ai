@@ -473,6 +473,35 @@ export function generateElementSuggestions(id) {
   })
 }
 
+/** 提交页面元素扫描异步任务（兼容旧版同步接口，超时放宽） */
+export function scanPageElements(data) {
+  return request({
+    url: '/ui-automation/elements/scan-page/',
+    method: 'post',
+    data,
+    timeout: 60000
+  })
+}
+
+/** 查询页面扫描任务状态 */
+export function getPageScanJob(jobId) {
+  return request({
+    url: `/ui-automation/elements/scan-jobs/${jobId}/`,
+    method: 'get',
+    timeout: 30000
+  })
+}
+
+/** 页面扫描任务列表 */
+export function listPageScanJobs(params) {
+  return request({
+    url: '/ui-automation/elements/scan-jobs/',
+    method: 'get',
+    params,
+    timeout: 30000
+  })
+}
+
 // 页面对象相关API
 export function getPageObjects(params) {
   return request({
@@ -990,10 +1019,11 @@ export function deleteAICase(id) {
 }
 
 // 运行 AI 用例
-export function runAICase(id) {
+export function runAICase(id, data = {}) {
   return request({
     url: `/ui-automation/ai-cases/${id}/run/`,
-    method: 'post'
+    method: 'post',
+    data
   })
 }
 
@@ -1056,5 +1086,129 @@ export function exportAIExecutionReportPDF(id, params = {}) {
     method: 'get',
     params,
     responseType: 'blob'
+  })
+}
+
+// ===== AI Script Pipeline =====
+export function compileAIExecutionToTestCase(id, data = {}) {
+  return request({
+    url: `/ui-automation/ai-execution-records/${id}/compile-to-testcase/`,
+    method: 'post',
+    data
+  })
+}
+
+export function syncAIExecutionElements(id, data = {}) {
+  return request({
+    url: `/ui-automation/ai-execution-records/${id}/sync-elements/`,
+    method: 'post',
+    data
+  })
+}
+
+export function diagnoseAIExecution(id, data = {}) {
+  return request({
+    url: `/ui-automation/ai-execution-records/${id}/diagnose/`,
+    method: 'post',
+    data
+  })
+}
+
+export function exportTestCaseScript(id, data = {}) {
+  return request({
+    url: `/ui-automation/test-cases/${id}/export-script/`,
+    method: 'post',
+    data
+  })
+}
+
+export function diagnoseTestCaseExecution(id, data = {}) {
+  return request({
+    url: `/ui-automation/test-case-executions/${id}/diagnose/`,
+    method: 'post',
+    data
+  })
+}
+
+export function diagnoseTestCase(id, data = {}) {
+  return request({
+    url: `/ui-automation/test-cases/${id}/diagnose/`,
+    method: 'post',
+    data
+  })
+}
+
+export function createRecordingSession(data) {
+  return request({
+    url: '/ui-automation/recording-sessions/',
+    method: 'post',
+    data
+  })
+}
+
+export function stopRecordingSession(id, data = {}) {
+  return request({
+    url: `/ui-automation/recording-sessions/${id}/stop/`,
+    method: 'post',
+    data
+  })
+}
+
+export function getRecordingSessionEvents(id) {
+  return request({
+    url: `/ui-automation/recording-sessions/${id}/events/`,
+    method: 'get'
+  })
+}
+
+export function getRecordingSession(id) {
+  return request({
+    url: `/ui-automation/recording-sessions/${id}/`,
+    method: 'get'
+  })
+}
+
+export function compileActionTrace(id, data = {}) {
+  return request({
+    url: `/ui-automation/action-traces/${id}/compile/`,
+    method: 'post',
+    data
+  })
+}
+
+export function applyScriptFix(diagnosisId, data = {}) {
+  return request({
+    url: `/ui-automation/failure-diagnoses/${diagnosisId}/apply-script-fix/`,
+    method: 'post',
+    data
+  })
+}
+
+export function createDefectFromDiagnosis(diagnosisId, data = {}) {
+  return request({
+    url: `/ui-automation/failure-diagnoses/${diagnosisId}/create-defect/`,
+    method: 'post',
+    data
+  })
+}
+
+export function approveFixProposal(id) {
+  return request({
+    url: `/ui-automation/auto-fix-proposals/${id}/approve/`,
+    method: 'post'
+  })
+}
+
+export function rejectFixProposal(id) {
+  return request({
+    url: `/ui-automation/auto-fix-proposals/${id}/reject/`,
+    method: 'post'
+  })
+}
+
+export function getFailureDiagnosis(id) {
+  return request({
+    url: `/ui-automation/failure-diagnoses/${id}/`,
+    method: 'get'
   })
 }

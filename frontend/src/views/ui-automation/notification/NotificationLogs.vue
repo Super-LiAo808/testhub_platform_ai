@@ -131,14 +131,16 @@
             width="120"
         >
           <template #default="{ row }">
-            <el-button
-                type="primary"
-                link
-                size="small"
-                @click="viewDetail(row)"
-            >
-              {{ $t('uiAutomation.notification.logs.viewDetail') }}
-            </el-button>
+            <div class="table-actions">
+              <el-button
+                  type="primary"
+                  link
+                  size="small"
+                  @click="viewDetail(row)"
+              >
+                {{ $t('uiAutomation.notification.logs.viewDetail') }}
+              </el-button>
+            </div>
           </template>
         </el-table-column>
       </el-table>

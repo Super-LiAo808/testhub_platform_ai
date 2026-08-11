@@ -9,6 +9,12 @@
         <el-col :span="12">
           <div class="section-title">{{ $t('uiAutomation.ai.taskInput') }}</div>
           <el-form :model="taskForm" label-position="top">
+            <el-form-item label="UI 项目" required>
+              <el-select v-model="taskForm.projectId" placeholder="选择项目（固化用例需要）" filterable style="width: 100%">
+                <el-option v-for="p in projects" :key="p.id" :label="p.name" :value="p.id" />
+              </el-select>
+            </el-form-item>
+
             <el-form-item :label="$t('uiAutomation.ai.taskDescription')" required>
               <el-input
                 v-model="taskForm.description"
@@ -31,12 +37,23 @@
               </span>
             </el-form-item>
 
+            <el-form-item label="自动固化用例">
+              <el-switch
+                v-model="taskForm.autoCompile"
+                active-text="开"
+                inactive-text="关"
+              />
+              <span style="margin-left: 10px; color: #909399; font-size: 12px;">
+                执行结束后自动生成可回归 TestCase（需选择 UI 项目）
+              </span>
+            </el-form-item>
+
             <el-form-item>
               <el-button
                 type="primary"
                 @click="handleRun"
                 :loading="running"
-                :disabled="!taskForm.description"
+                :disabled="!taskForm.description || (taskForm.autoCompile && !taskForm.projectId)"
               >
                 <el-icon><VideoPlay /></el-icon>
                 {{ $t('uiAutomation.ai.startExecution') }}
@@ -74,6 +91,13 @@
           </el-alert>
 
           <div class="section-title" style="margin-top: 20px;">{{ $t('uiAutomation.ai.executionLogs') }}</div>
+          <el-alert
+            v-if="derivedCaseId"
+            type="success"
+            :closable="false"
+            :title="`已自动固化回归用例 #${derivedCaseId}`"
+            style="margin-bottom: 10px;"
+          />
           <div class="log-container" ref="logContainer">
             <div v-if="!logs && !running" class="empty-logs">
               {{ $t('uiAutomation.ai.noLogs') }}
@@ -136,7 +160,7 @@
 </template>
 
 <script setup>
-import { ref, reactive, nextTick, computed } from 'vue'
+import { ref, reactive, nextTick, computed, onMounted } from 'vue'
 import { ElMessage } from 'element-plus'
 import { VideoPlay, DocumentAdd, CircleCheckFilled, CircleCheck, Loading, SwitchButton } from '@element-plus/icons-vue'
 import { useI18n } from 'vue-i18n'
@@ -144,7 +168,8 @@ import {
   runAdhocAITask,
   createAICase,
   getAIExecutionRecordDetail,
-  stopAITask
+  stopAITask,
+  getUiProjects
 } from '@/api/ui_automation'
 
 const { t } = useI18n()
@@ -156,10 +181,14 @@ const logs = ref('')
 const plannedTasks = ref([])
 const currentExecutionId = ref(null)
 const logContainer = ref(null)
+const projects = ref([])
+const derivedCaseId = ref(null)
 
 const taskForm = reactive({
+  projectId: null,
   description: '',
-  enableGif: true  // GIF录制开关，默认开启
+  enableGif: true,
+  autoCompile: true
 })
 
 const showSaveDialog = ref(false)
@@ -173,21 +202,38 @@ const saveRules = computed(() => ({
   name: [{ required: true, message: t('uiAutomation.ai.rules.nameRequired'), trigger: 'blur' }]
 }))
 
+onMounted(async () => {
+  try {
+    const res = await getUiProjects({ page_size: 100 })
+    projects.value = res.data?.results || res.data || []
+    if (projects.value.length && !taskForm.projectId) {
+      taskForm.projectId = projects.value[0].id
+    }
+  } catch (e) {
+    console.error('加载 UI 项目失败', e)
+  }
+})
+
 // 执行任务
 const handleRun = async () => {
+  if (taskForm.autoCompile && !taskForm.projectId) {
+    ElMessage.warning('自动固化用例需要先选择 UI 项目')
+    return
+  }
   running.value = true
   analyzing.value = true
+  derivedCaseId.value = null
   logs.value = t('uiAutomation.ai.messages.initAgent')
   plannedTasks.value = []
 
   try {
     const response = await runAdhocAITask({
+      project_id: taskForm.projectId || undefined,
       task_description: taskForm.description,
-      execution_mode: 'text',  // 始终使用文本模式
-      enable_gif: taskForm.enableGif  // 传递GIF录制开关状态
+      execution_mode: 'text',
+      enable_gif: taskForm.enableGif,
+      auto_compile_testcase: taskForm.autoCompile
     })
-
-    // analyzing.value = false // 移除过早设置，改为在轮询获取到任务列表后再取消
 
     currentExecutionId.value = response.data.execution_id
     ElMessage.success(t('uiAutomation.ai.messages.startSuccess'))
@@ -248,10 +294,19 @@ const pollLogs = () => {
         clearInterval(pollInterval)
         running.value = false
         analyzing.value = false // 确保结束时必然取消分析状态
+        derivedCaseId.value = record.derived_test_case_id || null
         if (record.status === 'passed') {
-          ElMessage.success(t('uiAutomation.ai.messages.executionSuccess'))
+          if (derivedCaseId.value) {
+            ElMessage.success(`执行成功，已自动固化回归用例 #${derivedCaseId.value}`)
+          } else {
+            ElMessage.success(t('uiAutomation.ai.messages.executionSuccess'))
+          }
         } else if (record.status === 'stopped') {
-          ElMessage.warning(t('uiAutomation.ai.messages.taskStopped'))
+          if (derivedCaseId.value) {
+            ElMessage.warning(`任务已停止，仍固化了回归用例 #${derivedCaseId.value}`)
+          } else {
+            ElMessage.warning(t('uiAutomation.ai.messages.taskStopped'))
+          }
         } else {
           ElMessage.error(t('uiAutomation.ai.messages.executionFailed'))
         }

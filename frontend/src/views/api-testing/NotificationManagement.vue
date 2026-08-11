@@ -74,13 +74,16 @@
             </el-table-column>
             <el-table-column :label="$t('apiTesting.common.operation')" width="100">
               <template #default="{ row }">
-                <el-button
-                  type="primary"
-                  size="small"
-                  @click="showNotificationDetail(row)"
-                >
-                  {{ $t('apiTesting.notification.viewDetail') }}
-                </el-button>
+                <div class="table-actions">
+                  <el-button
+                    link
+                    type="primary"
+                    size="small"
+                    @click="showNotificationDetail(row)"
+                  >
+                    {{ $t('apiTesting.notification.viewDetail') }}
+                  </el-button>
+                </div>
               </template>
             </el-table-column>
           </el-table>
@@ -161,15 +164,18 @@
               <el-table :data="recipients" style="width: 100%">
                 <el-table-column prop="name" :label="$t('apiTesting.notification.recipientName')" width="120" />
                 <el-table-column prop="email" :label="$t('apiTesting.notification.emailAddress')" min-width="200" />
-                <el-table-column :label="$t('apiTesting.common.operation')" width="120">
+                <el-table-column :label="$t('apiTesting.common.operation')" width="100">
                   <template #default="{ row }">
-                    <el-button
-                      type="danger"
-                      size="small"
-                      @click="deleteRecipient(row)"
-                    >
-                      {{ $t('apiTesting.common.delete') }}
-                    </el-button>
+                    <div class="table-actions">
+                      <el-button
+                        link
+                        type="danger"
+                        size="small"
+                        @click="deleteRecipient(row)"
+                      >
+                        {{ $t('apiTesting.common.delete') }}
+                      </el-button>
+                    </div>
                   </template>
                 </el-table-column>
               </el-table>
@@ -204,15 +210,18 @@
                     />
                   </template>
                 </el-table-column>
-                <el-table-column :label="$t('apiTesting.common.operation')" width="120">
+                <el-table-column :label="$t('apiTesting.common.operation')" width="100">
                   <template #default="{ row }">
-                    <el-button
-                      type="danger"
-                      size="small"
-                      @click="deleteWebhook(row)"
-                    >
-                      {{ $t('apiTesting.common.delete') }}
-                    </el-button>
+                    <div class="table-actions">
+                      <el-button
+                        link
+                        type="danger"
+                        size="small"
+                        @click="deleteWebhook(row)"
+                      >
+                        {{ $t('apiTesting.common.delete') }}
+                      </el-button>
+                    </div>
                   </template>
                 </el-table-column>
               </el-table>

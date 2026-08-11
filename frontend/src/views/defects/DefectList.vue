@@ -148,10 +148,12 @@
         <el-table-column prop="created_at" label="创建时间" width="170">
           <template #default="{ row }">{{ formatDate(row.created_at) }}</template>
         </el-table-column>
-        <el-table-column label="操作" width="170" fixed="right">
+        <el-table-column label="操作" width="140" fixed="right">
           <template #default="{ row }">
-            <el-button size="small" @click="router.push(`/defects/${row.id}`)">详情</el-button>
-            <el-button size="small" type="primary" @click="router.push(`/defects/${row.id}/edit`)">编辑</el-button>
+            <div class="table-actions">
+              <el-button link type="primary" size="small" @click="router.push(`/defects/${row.id}`)">详情</el-button>
+              <el-button link type="primary" size="small" @click="router.push(`/defects/${row.id}/edit`)">编辑</el-button>
+            </div>
           </template>
         </el-table-column>
       </el-table>

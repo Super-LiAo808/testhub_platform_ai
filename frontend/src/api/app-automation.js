@@ -697,3 +697,34 @@ export function getAppNotificationLogs(params) {
 export function retryAppNotification(id) {
   return request({ url: `/app-automation/notification-logs/${id}/retry/`, method: 'post' })
 }
+
+// ==================== APP 操作录制 ====================
+
+export function createAppRecordingSession(data) {
+  // Create returns quickly; Appium/APK install runs in background worker
+  return request({ url: '/app-automation/recording-sessions/', method: 'post', data, timeout: 30000 })
+}
+
+export function getAppRecordingSession(id) {
+  return request({ url: `/app-automation/recording-sessions/${id}/`, method: 'get' })
+}
+
+export function stopAppRecordingSession(id, data = {}) {
+  return request({ url: `/app-automation/recording-sessions/${id}/stop/`, method: 'post', data })
+}
+
+export function saveAppRecordingCase(id, data = {}) {
+  return request({ url: `/app-automation/recording-sessions/${id}/save-case/`, method: 'post', data })
+}
+
+export function sendAppRecordingEvent(id, data) {
+  return request({ url: `/app-automation/recording-sessions/${id}/event/`, method: 'post', data })
+}
+
+export function updateAppRecordingSettings(id, data) {
+  return request({ url: `/app-automation/recording-sessions/${id}/stream-settings/`, method: 'post', data, timeout: 10000 })
+}
+
+export function getAppRecordingFrame(id) {
+  return request({ url: `/app-automation/recording-sessions/${id}/frame/`, method: 'get', timeout: 15000 })
+}

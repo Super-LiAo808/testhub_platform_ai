@@ -6,7 +6,8 @@ from .models import (
     ElementGroup, PageObject, PageObjectElement, ScriptStep, ScriptElementUsage,
     TestCase, TestCaseStep, TestCaseExecution, OperationRecord,
     UiScheduledTask, UiNotificationLog, UiTaskNotificationSetting,
-    AICase, AIExecutionRecord
+    AICase, AIExecutionRecord, UIActionTrace, RecordingSession,
+    FailureDiagnosis, AutoFixProposal,
 )
 from django.contrib.auth import get_user_model
 
@@ -547,7 +548,7 @@ class TestCaseSerializer(serializers.ModelSerializer):
         model = TestCase
         fields = [
             'id', 'name', 'description', 'project', 'project_name', 'status', 'priority',
-            'created_by', 'created_by_name', 'created_at', 'updated_at', 'steps'
+            'source', 'created_by', 'created_by_name', 'created_at', 'updated_at', 'steps'
         ]
         read_only_fields = ['created_by']
 
@@ -802,6 +803,8 @@ class AICaseSerializer(serializers.ModelSerializer):
     project = UiProjectSerializer(read_only=True)
     created_by = UserSerializer(read_only=True)
     project_id = serializers.IntegerField(write_only=True, required=False, allow_null=True)
+    linked_test_case_id = serializers.IntegerField(required=False, allow_null=True)
+    linked_test_case_name = serializers.CharField(source='linked_test_case.name', read_only=True, allow_null=True)
 
     class Meta:
         model = AICase
@@ -822,6 +825,10 @@ class AIExecutionRecordSerializer(serializers.ModelSerializer):
     project_name = serializers.CharField(source='project.name', read_only=True)
     ai_case_name = serializers.CharField(source='ai_case.name', read_only=True)
     executed_by_name = serializers.CharField(source='executed_by.username', read_only=True)
+    derived_test_case_id = serializers.IntegerField(read_only=True, allow_null=True)
+    derived_test_case_name = serializers.CharField(
+        source='derived_test_case.name', read_only=True, allow_null=True
+    )
 
     class Meta:
         model = AIExecutionRecord
@@ -829,11 +836,60 @@ class AIExecutionRecordSerializer(serializers.ModelSerializer):
             'id', 'project', 'project_id', 'project_name', 'ai_case', 'ai_case_id', 'ai_case_name', 'case_name',
             'task_description',
             'execution_mode', 'status', 'start_time', 'end_time', 'duration',
-            'logs', 'steps_completed', 'planned_tasks', 'executed_by', 'executed_by_name',
+            'logs', 'steps_completed', 'planned_tasks', 'action_trace',
+            'derived_test_case_id', 'derived_test_case_name',
+            'executed_by', 'executed_by_name',
             'gif_path', 'screenshots_sequence'
         ]
-        read_only_fields = ('start_time', 'end_time', 'duration', 'executed_by', 'gif_path', 'screenshots_sequence')
+        read_only_fields = (
+            'start_time', 'end_time', 'duration', 'executed_by', 'gif_path',
+            'screenshots_sequence', 'action_trace', 'derived_test_case_id',
+        )
 
+
+class UIActionTraceSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = UIActionTrace
+        fields = '__all__'
+        read_only_fields = ('created_at', 'updated_at', 'created_by')
+
+
+class RecordingSessionSerializer(serializers.ModelSerializer):
+    project_name = serializers.CharField(source='project.name', read_only=True)
+    action_trace_id = serializers.IntegerField(read_only=True, allow_null=True)
+
+    class Meta:
+        model = RecordingSession
+        fields = [
+            'id', 'project', 'project_name', 'name', 'start_url', 'status',
+            'action_trace', 'action_trace_id', 'error_message',
+            'created_by', 'started_at', 'stopped_at', 'created_at', 'updated_at',
+        ]
+        read_only_fields = (
+            'status', 'action_trace', 'error_message', 'created_by',
+            'started_at', 'stopped_at', 'created_at', 'updated_at',
+        )
+
+
+class AutoFixProposalSerializer(serializers.ModelSerializer):
+    target_display = serializers.CharField(source='get_target_display', read_only=True)
+    status_display = serializers.CharField(source='get_status_display', read_only=True)
+
+    class Meta:
+        model = AutoFixProposal
+        fields = '__all__'
+
+
+class FailureDiagnosisSerializer(serializers.ModelSerializer):
+    category_display = serializers.CharField(source='get_category_display', read_only=True)
+    proposals = serializers.SerializerMethodField()
+
+    class Meta:
+        model = FailureDiagnosis
+        fields = '__all__'
+
+    def get_proposals(self, obj):
+        return AutoFixProposalSerializer(obj.fix_proposals.all(), many=True).data
 
 
 class UiNotificationLogSerializer(serializers.ModelSerializer):

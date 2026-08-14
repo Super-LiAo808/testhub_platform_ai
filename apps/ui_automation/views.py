@@ -216,6 +216,31 @@ class ElementViewSet(viewsets.ModelViewSet):
         log_operation('delete', 'element', instance.id, instance.name, self.request.user)
         instance.delete()
 
+    @action(detail=False, methods=['post'], url_path='batch-delete')
+    def batch_delete(self, request):
+        """批量删除元素"""
+        ids = request.data.get('ids') or []
+        if not isinstance(ids, list) or not ids:
+            return Response({'error': '请提供要删除的元素 ID 列表'}, status=status.HTTP_400_BAD_REQUEST)
+        qs = self.get_queryset().filter(id__in=ids)
+        deleted = 0
+        errors = []
+        for instance in list(qs):
+            element_id = instance.id
+            name = instance.name
+            try:
+                log_operation('delete', 'element', element_id, name, request.user)
+                instance.delete()
+                deleted += 1
+            except Exception as exc:
+                logger.exception('批量删除元素失败 id=%s', element_id)
+                errors.append({'id': element_id, 'name': name, 'error': str(exc)})
+        return Response({
+            'deleted': deleted,
+            'failed': len(errors),
+            'errors': errors,
+        })
+
     @action(detail=True, methods=['post'])
     def validate_locator(self, request, pk=None):
         """验证元素定位器有效性"""
@@ -485,6 +510,56 @@ class ElementGroupViewSet(viewsets.ModelViewSet):
                                                                                            'parent_group').order_by(
             'order', 'name')
 
+    def _collect_descendant_group_ids(self, root):
+        """收集分组及其全部子孙分组 ID"""
+        ids = [root.id]
+        queue = [root.id]
+        while queue:
+            parent_id = queue.pop()
+            child_ids = list(
+                ElementGroup.objects.filter(parent_group_id=parent_id).values_list('id', flat=True)
+            )
+            ids.extend(child_ids)
+            queue.extend(child_ids)
+        return ids
+
+    def perform_destroy(self, instance):
+        """删除文件夹时一并删除其下元素与子文件夹"""
+        name = instance.name
+        group_id = instance.id
+        group_ids = self._collect_descendant_group_ids(instance)
+        # 先删元素（group 为 SET_NULL，不删会变成未关联）
+        Element.objects.filter(group_id__in=group_ids).delete()
+        instance.delete()
+        log_operation('delete', 'element_group', group_id, name, self.request.user)
+
+    @action(detail=False, methods=['post'], url_path='batch-delete')
+    def batch_delete(self, request):
+        """批量删除元素分组（文件夹）及其下元素"""
+        ids = request.data.get('ids') or []
+        if not isinstance(ids, list) or not ids:
+            return Response({'error': '请提供要删除的分组 ID 列表'}, status=status.HTTP_400_BAD_REQUEST)
+        qs = self.get_queryset().filter(id__in=ids)
+        deleted = 0
+        errors = []
+        # 先删顶层选中的，子分组会随父级 CASCADE/本逻辑删除，跳过已不存在的
+        for instance in list(qs):
+            if not ElementGroup.objects.filter(id=instance.id).exists():
+                continue
+            group_id = instance.id
+            name = instance.name
+            try:
+                self.perform_destroy(instance)
+                deleted += 1
+            except Exception as exc:
+                logger.exception('批量删除元素分组失败 id=%s', group_id)
+                errors.append({'id': group_id, 'name': name, 'error': str(exc)})
+        return Response({
+            'deleted': deleted,
+            'failed': len(errors),
+            'errors': errors,
+        })
+
     @action(detail=False, methods=['get'])
     def tree(self, request):
         """获取分组树形结构"""
@@ -721,9 +796,10 @@ class ScriptElementUsageViewSet(viewsets.ModelViewSet):
 class TestScriptViewSet(viewsets.ModelViewSet):
     queryset = TestScript.objects.all()
     permission_classes = [IsAuthenticated]
-    filter_backends = [DjangoFilterBackend, filters.SearchFilter]
-    filterset_fields = ['project', 'script_type']
+    filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
+    filterset_fields = ['project', 'script_type', 'framework', 'language']
     search_fields = ['name', 'description']
+    ordering_fields = ['created_at', 'updated_at', 'name', 'id']
     ordering = ['-created_at']
 
     def get_serializer_class(self):
@@ -739,7 +815,96 @@ class TestScriptViewSet(viewsets.ModelViewSet):
         accessible_projects = UiProject.objects.filter(
             models.Q(owner=user) | models.Q(members=user)
         ).distinct()
-        return TestScript.objects.filter(project__in=accessible_projects)
+        return TestScript.objects.filter(project__in=accessible_projects).select_related(
+            'project', 'source_test_case'
+        )
+
+    @action(detail=True, methods=['post'], url_path='run')
+    def run_script(self, request, pk=None):
+        """独立运行脚本（执行 content，结果写入 TestExecution）"""
+        from .services.script_runner import start_script_execution
+
+        script = self.get_object()
+        if not (script.content or '').strip():
+            return Response({'error': '脚本内容为空，无法执行'}, status=status.HTTP_400_BAD_REQUEST)
+
+        headless = request.data.get('headless', True)
+        browser = request.data.get('browser', 'chrome')
+        timeout = int(request.data.get('timeout', 600) or 600)
+
+        execution = start_script_execution(
+            script,
+            executed_by=request.user,
+            headless=bool(headless),
+            browser=browser,
+            timeout=timeout,
+        )
+        return Response({
+            'message': '脚本开始执行',
+            'execution_id': execution.id,
+            'script_id': script.id,
+            'status': execution.status,
+        }, status=status.HTTP_202_ACCEPTED)
+
+    @action(detail=True, methods=['get'], url_path='sync-status')
+    def sync_status(self, request, pk=None):
+        from .services.codegen import get_script_sync_status
+        script = self.get_object()
+        return Response(get_script_sync_status(script))
+
+    @action(detail=True, methods=['post'], url_path='sync-from-case')
+    def sync_from_case(self, request, pk=None):
+        """显式用关联用例覆盖脚本内容（需 force=true 时若已不一致也会覆盖）"""
+        from .services.codegen import export_testcase_to_script, get_script_sync_status
+
+        script = self.get_object()
+        if not script.source_test_case_id:
+            return Response({'error': '该脚本未关联用例'}, status=status.HTTP_400_BAD_REQUEST)
+
+        force = bool(request.data.get('force', True))
+        engine = (request.data.get('engine') or script.framework or 'playwright').lower()
+        if engine not in ('playwright', 'selenium'):
+            return Response({'error': 'engine 须为 playwright 或 selenium'}, status=400)
+
+        updated, meta = export_testcase_to_script(
+            script.source_test_case, engine=engine, force=force
+        )
+        return Response({
+            'script': TestScriptSerializer(updated).data,
+            'meta': meta,
+            'sync_status': meta.get('sync_status') or get_script_sync_status(updated),
+        })
+
+    def perform_destroy(self, instance):
+        name = instance.name
+        script_id = instance.id
+        instance.delete()
+        log_operation('delete', 'test_script', script_id, name, self.request.user)
+
+    @action(detail=False, methods=['post'], url_path='batch-delete')
+    def batch_delete(self, request):
+        """批量删除测试脚本"""
+        ids = request.data.get('ids') or []
+        if not isinstance(ids, list) or not ids:
+            return Response({'error': '请提供要删除的脚本 ID 列表'}, status=status.HTTP_400_BAD_REQUEST)
+        qs = self.get_queryset().filter(id__in=ids)
+        deleted = 0
+        errors = []
+        for instance in list(qs):
+            script_id = instance.id
+            name = instance.name
+            try:
+                instance.delete()
+                log_operation('delete', 'test_script', script_id, name, request.user)
+                deleted += 1
+            except Exception as exc:
+                logger.exception('批量删除测试脚本失败 id=%s', script_id)
+                errors.append({'id': script_id, 'name': name, 'error': str(exc)})
+        return Response({
+            'deleted': deleted,
+            'failed': len(errors),
+            'errors': errors,
+        })
 
 
 class TestSuiteViewSet(viewsets.ModelViewSet):
@@ -979,9 +1144,17 @@ class TestExecutionViewSet(viewsets.ModelViewSet):
         accessible_projects = UiProject.objects.filter(
             models.Q(owner=user) | models.Q(members=user)
         ).distinct()
-        return TestExecution.objects.filter(
+        qs = TestExecution.objects.filter(
             project__in=accessible_projects
         ).select_related('project', 'test_suite', 'test_script', 'executed_by')
+
+        has_script = self.request.query_params.get('has_script')
+        if has_script in ('1', 'true', 'True'):
+            qs = qs.filter(test_script__isnull=False)
+        only_suite = self.request.query_params.get('only_suite')
+        if only_suite in ('1', 'true', 'True'):
+            qs = qs.filter(test_suite__isnull=False, test_script__isnull=True)
+        return qs
 
     def get_serializer_class(self):
         if self.action == 'create':
@@ -993,6 +1166,79 @@ class TestExecutionViewSet(viewsets.ModelViewSet):
         suite_name = instance.test_suite.name if instance.test_suite else f"执行记录#{instance.id}"
         log_operation('delete', 'report', instance.id, suite_name, self.request.user)
         instance.delete()
+
+    @action(detail=True, methods=['post'], url_path='diagnose')
+    def diagnose(self, request, pk=None):
+        """独立脚本执行失败诊断（TestExecution + test_script）"""
+        from apps.ui_automation.models import AutoFixProposal, FailureDiagnosis
+        from apps.ui_automation.serializers import (
+            AutoFixProposalSerializer,
+            FailureDiagnosisSerializer,
+        )
+        from apps.ui_automation.services.diagnosis import (
+            diagnose_failure,
+            has_diagnosis,
+            resolve_script_failure_context,
+        )
+
+        execution = self.get_object()
+        if not execution.test_script_id:
+            return Response(
+                {'error': '仅支持带脚本的执行记录诊断'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        force = bool(request.data.get('force'))
+        if has_diagnosis('script', execution.id) and not force:
+            diagnosis = FailureDiagnosis.objects.filter(
+                execution_type='script', execution_id=execution.id
+            ).prefetch_related('fix_proposals').first()
+            return Response({
+                'diagnosis': FailureDiagnosisSerializer(diagnosis).data,
+                'proposals': AutoFixProposalSerializer(
+                    list(diagnosis.fix_proposals.all()), many=True
+                ).data,
+            })
+
+        context = resolve_script_failure_context(execution, extra={
+            'element_id': request.data.get('element_id'),
+            'step_id': request.data.get('step_id'),
+            'locator': request.data.get('locator'),
+        })
+        result_data = execution.result_data or {}
+        logs = result_data.get('logs') if isinstance(result_data, dict) else ''
+        diagnosis, proposals = diagnose_failure(
+            execution_type='script',
+            execution_id=execution.id,
+            project=execution.project,
+            logs=logs or '',
+            error_message=execution.error_message or '',
+            context=context,
+            created_by=request.user,
+            use_llm=request.data.get('use_llm', True),
+        )
+        fix = diagnosis.suggested_fix or {}
+        if fix.get('type') == 'force_action' and context.get('test_case_id'):
+            regen = {
+                'type': 'regenerate_script',
+                'test_case_id': context.get('test_case_id'),
+                'test_script_id': context.get('test_script_id'),
+                'element_id': context.get('element_id'),
+            }
+            proposals.append(AutoFixProposal.objects.create(
+                diagnosis=diagnosis,
+                target='test_asset',
+                title='按最新 codegen 重生成独立脚本',
+                description='将悬停改为可容错滚动 + hover(force=True)。',
+                diff=json.dumps(regen, ensure_ascii=False, indent=2),
+                patch_payload=regen,
+                status='proposed',
+                created_by=request.user,
+            ))
+        return Response({
+            'diagnosis': FailureDiagnosisSerializer(diagnosis).data,
+            'proposals': AutoFixProposalSerializer(proposals, many=True).data,
+        })
 
 
 class ScreenshotViewSet(viewsets.ModelViewSet):
@@ -1036,7 +1282,9 @@ class TestCaseViewSet(viewsets.ModelViewSet):
         accessible_projects = UiProject.objects.filter(
             models.Q(owner=user) | models.Q(members=user)
         ).distinct()
-        return TestCase.objects.filter(project__in=accessible_projects).select_related('project', 'created_by')
+        return TestCase.objects.filter(project__in=accessible_projects).select_related(
+            'project', 'created_by', 'linked_script'
+        )
 
     def perform_create(self, serializer):
         # 创建测试用例
@@ -1124,6 +1372,13 @@ class TestCaseViewSet(viewsets.ModelViewSet):
             if new_steps:
                 TestCaseStep.objects.bulk_create(new_steps)
 
+            # 复制后仅在无配套脚本时创建；不覆盖已有内容
+            try:
+                from .services.codegen import export_testcase_to_script
+                export_testcase_to_script(new_case, force=False)
+            except Exception as sync_exc:
+                logger.warning(f'复制用例后同步脚本失败: {sync_exc}')
+
             # 记录操作
             log_operation('create', 'test_case', new_case.id, new_case.name, request.user)
 
@@ -1189,6 +1444,24 @@ class TestCaseViewSet(viewsets.ModelViewSet):
                     logger.error(f"步骤数据: {step_data}")
 
             logger.info(f"成功创建了 {created_count} 个新步骤")
+
+        # 若已有配套脚本：不自动覆盖（不一致由 sync_status 标识）
+        # 若无配套脚本且来源为录制/AI：创建一份独立脚本
+        self._ensure_linked_script(instance)
+
+    def _ensure_linked_script(self, instance):
+        from .models import TestScript
+        from .services.codegen import export_testcase_to_script
+
+        has_link = TestScript.objects.filter(source_test_case_id=instance.id).exists()
+        if has_link:
+            return
+        if instance.source not in ('recorded', 'ai_compiled'):
+            return
+        try:
+            export_testcase_to_script(instance, force=False)
+        except Exception as exc:
+            logger.warning(f'创建用例 #{instance.id} 配套脚本失败: {exc}')
 
     def _generate_step_log(self, step, step_result='success'):
         """根据测试步骤生成执行日志"""
@@ -1910,7 +2183,9 @@ class TestCaseViewSet(viewsets.ModelViewSet):
                             await engine.stop()
                             execution_logs.append("✓ 浏览器已关闭")
 
-                    # 在新的事件循环中运行测试
+                    # 在新的事件循环中运行测试（Windows 需 Proactor 才能起 Playwright 子进程）
+                    from .playwright_engine import ensure_windows_proactor_event_loop
+                    ensure_windows_proactor_event_loop()
                     loop = asyncio.new_event_loop()
                     asyncio.set_event_loop(loop)
                     try:
@@ -2049,8 +2324,45 @@ class TestCaseViewSet(viewsets.ModelViewSet):
 
     def perform_destroy(self, instance):
         # 记录操作（在删除前记录）
-        log_operation('delete', 'test_case', instance.id, instance.name, self.request.user)
-        instance.delete()
+        name = instance.name
+        case_id = instance.id
+        try:
+            # 解除关联脚本（OneToOne SET_NULL 一般自动处理；显式清理更稳妥）
+            from .models import TestScript
+            TestScript.objects.filter(source_test_case_id=case_id).update(source_test_case=None)
+            instance.delete()
+        except Exception as exc:
+            logger.exception('删除测试用例失败 id=%s', case_id)
+            from rest_framework.exceptions import ValidationError
+            raise ValidationError({'error': f'删除失败: {exc}'})
+        log_operation('delete', 'test_case', case_id, name, self.request.user)
+
+    @action(detail=False, methods=['post'], url_path='batch-delete')
+    def batch_delete(self, request):
+        """批量删除测试用例"""
+        ids = request.data.get('ids') or []
+        if not isinstance(ids, list) or not ids:
+            return Response({'error': '请提供要删除的用例 ID 列表'}, status=status.HTTP_400_BAD_REQUEST)
+        qs = self.get_queryset().filter(id__in=ids)
+        deleted = 0
+        errors = []
+        from .models import TestScript
+        for instance in list(qs):
+            case_id = instance.id
+            name = instance.name
+            try:
+                TestScript.objects.filter(source_test_case_id=case_id).update(source_test_case=None)
+                instance.delete()
+                log_operation('delete', 'test_case', case_id, name, request.user)
+                deleted += 1
+            except Exception as exc:
+                logger.exception('批量删除测试用例失败 id=%s', case_id)
+                errors.append({'id': case_id, 'name': name, 'error': str(exc)})
+        return Response({
+            'deleted': deleted,
+            'failed': len(errors),
+            'errors': errors,
+        })
 
 
 class TestCaseStepViewSet(viewsets.ModelViewSet):
@@ -2573,6 +2885,8 @@ class UiScheduledTaskViewSet(viewsets.ModelViewSet):
                                             await engine.stop()
 
                                     # 在新的事件循环中运行Playwright测试
+                                    from .playwright_engine import ensure_windows_proactor_event_loop
+                                    ensure_windows_proactor_event_loop()
                                     loop = asyncio.new_event_loop()
                                     asyncio.set_event_loop(loop)
                                     try:

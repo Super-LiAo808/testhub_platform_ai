@@ -20,6 +20,7 @@ import ApiScheduledTasks from '@/views/api-testing/ScheduledTasks.vue'
 import ApiAIServiceConfig from '@/views/api-testing/AIServiceConfig.vue'
 import NotificationLogs from '@/views/notification/NotificationLogs.vue'
 import UiDashboard from '@/views/ui-automation/dashboard/Dashboard.vue'
+import UiSelfHealingDashboard from '@/views/ui-automation/self-healing/SelfHealingDashboard.vue'
 import UiProjectList from '@/views/ui-automation/projects/ProjectList.vue'
 import UiElementManagerEnhanced from '@/views/ui-automation/elements/ElementManagerEnhanced.vue'
 import UiTestCaseManager from '@/views/ui-automation/test-cases/TestCaseManager.vue'
@@ -255,6 +256,11 @@ const routes = [
                 path: 'dashboard',
                 name: 'UiDashboard',
                 component: UiDashboard
+            },
+            {
+                path: 'self-healing',
+                name: 'UiSelfHealing',
+                component: UiSelfHealingDashboard
             },
             {
                 path: 'projects',

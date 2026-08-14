@@ -106,16 +106,19 @@ export default {
 
   // dashboard
   dashboard: {
+    title: 'Dashboard',
     totalDevices: 'Total Devices',
-    onlineDevices: 'Online Devices',
+    onlineDevices: 'Available / Online',
     lockedDevices: 'Locked Devices',
     testCases: 'Test Cases',
     executionStatistics: 'Execution Statistics',
     totalExecutions: 'Total Executions',
+    runningCount: 'Running',
     successCount: 'Success Count',
     failedCount: 'Failure Count',
     passRate: 'Pass Rate',
     recentExecutions: 'Recent Executions',
+    executionDetail: 'Execution Detail',
     viewAll: 'View All',
     noExecutionRecords: 'No execution records',
     device: 'Device',

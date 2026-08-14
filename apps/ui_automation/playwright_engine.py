@@ -13,6 +13,75 @@ from .variable_resolver import resolve_variables
 
 logger = logging.getLogger(__name__)
 
+
+def ensure_windows_proactor_event_loop():
+    """Windows + Daphne 下默认可能是 SelectorEventLoop，无法 create_subprocess → NotImplementedError。
+
+    Playwright 依赖 asyncio 子进程；在启动 Sync/Async Playwright 前强制 Proactor。
+    """
+    import sys
+    if sys.platform != 'win32':
+        return
+    try:
+        asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
+    except Exception:
+        pass
+    # 当前线程若已有非 Proactor loop，替换之；无 loop 则新建 Proactor
+    try:
+        try:
+            loop = asyncio.get_running_loop()
+            # 已有 running loop（如 Daphne 主线程）无法替换，仅依赖 policy 影响子线程 new_event_loop
+            if not isinstance(loop, asyncio.ProactorEventLoop):
+                logger.debug(
+                    'running loop is %s; Proactor policy set for new loops',
+                    type(loop).__name__,
+                )
+            return
+        except RuntimeError:
+            pass
+        loop = None
+        try:
+            loop = asyncio.get_event_loop()
+        except RuntimeError:
+            loop = None
+        if loop is None or loop.is_closed() or not isinstance(loop, asyncio.ProactorEventLoop):
+            loop = asyncio.ProactorEventLoop()
+            asyncio.set_event_loop(loop)
+    except Exception:
+        try:
+            loop = asyncio.ProactorEventLoop()
+            asyncio.set_event_loop(loop)
+        except Exception:
+            pass
+
+
+def start_sync_playwright():
+    """启动 sync_playwright，并在 Windows 上强制 Proactor（避免 Daphne SelectorEventLoop）。
+
+    Playwright Sync API 在无 running loop 时会调用 asyncio.new_event_loop()；
+    若进程策略被 Daphne 改成 Selector，就会在 create_subprocess_exec 处 NotImplementedError。
+    """
+    import sys
+    from playwright.sync_api import sync_playwright
+
+    ensure_windows_proactor_event_loop()
+    if sys.platform != 'win32':
+        return sync_playwright().start()
+
+    policy = asyncio.WindowsProactorEventLoopPolicy()
+    asyncio.set_event_loop_policy(policy)
+    original_new_event_loop = asyncio.new_event_loop
+
+    def _proactor_new_event_loop():
+        return policy.new_event_loop()
+
+    asyncio.new_event_loop = _proactor_new_event_loop  # type: ignore[assignment]
+    try:
+        return sync_playwright().start()
+    finally:
+        asyncio.new_event_loop = original_new_event_loop  # type: ignore[assignment]
+
+
 class PlaywrightTestEngine:
     """Playwright测试执行引擎"""
 
@@ -61,50 +130,71 @@ class PlaywrightTestEngine:
         }
         browser_name = browser_name_map.get(normalized_browser, normalized_browser.capitalize())
         install_cmd = PlaywrightTestEngine.get_browser_install_command(normalized_browser)
+        err = error_msg or ''
 
-        if "Executable doesn't exist" in error_msg or 'Please run the following command' in error_msg:
+        if 'NotImplementedError' in err:
+            return (
+                f"{browser_name} 在当前异步环境中无法拉起子进程（Windows + Daphne 常见）。\n"
+                f"已尝试使用 ProactorEventLoop；请重启 Daphne 后重试。\n"
+                f"若仍失败，可临时用：python manage.py runserver（仅 HTTP）或改用 Selenium。\n"
+                f"详细错误：{err}"
+            )
+
+        if "Executable doesn't exist" in err or 'Please run the following command' in err:
             return (
                 f"{browser_name} 浏览器未安装或 Playwright 浏览器二进制缺失。\n"
                 f"请先执行命令安装浏览器：{install_cmd}"
             )
 
         return (
-            f"{browser_name} 浏览器启动失败：{error_msg}\n"
+            f"{browser_name} 浏览器启动失败：{err}\n"
             f"如未安装 Playwright 浏览器，请先执行：{install_cmd}"
         )
 
     @staticmethod
     def check_execution_environment_sync(browser_type='chromium'):
-        """同步检查 Playwright 执行环境"""
+        """同步检查 Playwright 执行环境。
+
+        在 Daphne/ASGI / Windows 下：
+        - Sync API 不能嵌在 running asyncio loop 里
+        - SelectorEventLoop 不支持 subprocess → NotImplementedError
+        因此始终在独立线程 + ProactorEventLoop 中探测。
+        """
         normalized_browser = PlaywrightTestEngine.normalize_browser_type(browser_type)
 
-        try:
-            from playwright.sync_api import sync_playwright
-        except ImportError as e:
-            return False, (
-                "Playwright 模块未安装。\n"
-                "请先执行命令安装：pip install playwright\n"
-                f"然后执行：{PlaywrightTestEngine.get_browser_install_command(normalized_browser)}\n"
-                f"详细错误：{str(e)}"
-            )
-
-        playwright = None
-        browser = None
-        try:
-            playwright = sync_playwright().start()
-            browser_launcher = getattr(playwright, normalized_browser)
-            browser = browser_launcher.launch(headless=True)
-            return True, None
-        except Exception as e:
-            logger.error(f"同步检查 Playwright 执行环境失败: {str(e)}")
-            return False, PlaywrightTestEngine._format_environment_error(normalized_browser, str(e))
-        finally:
+        def _probe():
             try:
-                if browser:
-                    browser.close()
+                from playwright.sync_api import sync_playwright  # noqa: F401
+            except ImportError as e:
+                return False, (
+                    "Playwright 模块未安装。\n"
+                    "请先执行命令安装：pip install playwright\n"
+                    f"然后执行：{PlaywrightTestEngine.get_browser_install_command(normalized_browser)}\n"
+                    f"详细错误：{str(e)}"
+                )
+
+            playwright = None
+            browser = None
+            try:
+                playwright = start_sync_playwright()
+                browser_launcher = getattr(playwright, normalized_browser)
+                browser = browser_launcher.launch(headless=True)
+                return True, None
+            except Exception as e:
+                msg = str(e) or repr(e)
+                logger.error(f"同步检查 Playwright 执行环境失败: {msg}")
+                return False, PlaywrightTestEngine._format_environment_error(normalized_browser, msg)
             finally:
-                if playwright:
-                    playwright.stop()
+                try:
+                    if browser:
+                        browser.close()
+                finally:
+                    if playwright:
+                        playwright.stop()
+
+        import concurrent.futures
+        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+            return pool.submit(_probe).result(timeout=90)
 
     @staticmethod
     async def check_execution_environment(browser_type='chromium'):
@@ -132,6 +222,7 @@ class PlaywrightTestEngine:
     async def start(self):
         """启动浏览器"""
         try:
+            ensure_windows_proactor_event_loop()
             self.playwright = await async_playwright().start()
 
             # 根据浏览器类型选择启动方式
@@ -159,7 +250,18 @@ class PlaywrightTestEngine:
             # 创建浏览器上下文
             self.context = await self.browser.new_context(
                 viewport={'width': 1920, 'height': 1080},
-                user_agent='Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36'
+                locale='zh-CN',
+                user_agent=(
+                    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 '
+                    '(KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36'
+                ),
+                extra_http_headers={
+                    'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8',
+                },
+            )
+            # 降低自动化特征，减少站点对直链/自动化的 403
+            await self.context.add_init_script(
+                "Object.defineProperty(navigator, 'webdriver', {get: () => undefined});"
             )
 
             # 创建页面
@@ -234,6 +336,68 @@ class PlaywrightTestEngine:
                 log += f"  - 截图范围: 整个页面\n"
                 log += f"  - 执行时间: {execution_time}秒"
                 return True, log, screenshot_base64
+
+            # 录制链接点击：优先真实点击开新标签（带 Referer/Cookie），避免直链 goto 被站点 403
+            elif action_type == 'click' and resolved_input_value and str(resolved_input_value).strip().startswith(
+                ('http://', 'https://')
+            ):
+                url = str(resolved_input_value).strip()
+                referer = ''
+                try:
+                    referer = (self.page.url or '') if self.page else ''
+                except Exception:
+                    referer = ''
+
+                opened_how = None
+                # 有定位器时：模拟用户点击打开新页（CSDN 等对无 Referer 直链常返回 403）
+                if (element_data or {}).get('locator_value'):
+                    try:
+                        loc_strategy = (element_data.get('locator_strategy') or 'css').lower()
+                        loc_value = element_data.get('locator_value') or ''
+                        if loc_strategy in ('xpath', 'xPath'):
+                            base = self.page.locator(f'xpath={loc_value}')
+                        elif loc_strategy in ('id', 'ID'):
+                            base = self.page.locator(f'#{loc_value}' if not str(loc_value).startswith('#') else loc_value)
+                        elif loc_strategy in ('text', 'TEXT'):
+                            base = self.page.get_by_text(str(loc_value), exact=False)
+                        else:
+                            base = self.page.locator(loc_value)
+                        target = base.locator('visible=true').first
+                        if await target.count() == 0:
+                            target = base.first
+                        async with self.context.expect_page(timeout=8000) as ni:
+                            try:
+                                await target.click(timeout=5000)
+                            except Exception:
+                                try:
+                                    await base.first.click(force=True, timeout=3000)
+                                except Exception:
+                                    await base.first.evaluate(
+                                        "el => { const a = el.closest && el.closest('a'); (a || el).click(); }"
+                                    )
+                        self.page = await ni.value
+                        await self.page.wait_for_load_state('domcontentloaded')
+                        opened_how = 'click+new_tab'
+                    except Exception as click_open_err:
+                        logger.info(f'链接点击开新页失败，回退带 Referer 的 goto: {click_open_err}')
+
+                if not opened_how:
+                    new_page = await self.context.new_page()
+                    goto_kwargs = {'wait_until': 'domcontentloaded', 'timeout': 30000}
+                    if referer.startswith('http'):
+                        goto_kwargs['referer'] = referer
+                    await new_page.goto(url, **goto_kwargs)
+                    self.page = new_page
+                    opened_how = 'goto+referer' if referer.startswith('http') else 'goto'
+
+                execution_time = round(time.time() - start_time, 2)
+                log = f"✓ 通过录制链接打开新页\n"
+                log += f"  - URL: {url}\n"
+                log += f"  - 方式: {opened_how}\n"
+                if referer:
+                    log += f"  - Referer: {referer}\n"
+                log += f"  - 执行时间: {execution_time}秒"
+                return True, log, None
 
             elif action_type == 'scroll' and not (element_data or {}).get('locator_value'):
                 # 页面滚动：input_value = "x,y"
@@ -357,58 +521,93 @@ class PlaywrightTestEngine:
                 locator_strategy = candidate['strategy']
                 locator_value = candidate['value']
                 try:
-                    # 根据定位策略获取元素
+                    # 根据定位策略获取元素（先拿“未收窄”的 base，再按匹配数消歧）
                     if locator_strategy.lower() == 'id':
-                        locator = self.page.locator(f'#{locator_value}')
+                        base = self.page.locator(f'#{locator_value}')
                     elif locator_strategy.lower() in ['css', 'css selector']:
-                        # CSS 定位器，对于可能匹配多个元素的情况，添加 .first
-                        # 特别是下拉框选项，可能有多个同名选项
                         if any(keyword in locator_value.lower() for keyword in ['dropdown', 'el-select', ':has(', 'li']):
-                            # 如果是下拉框选项，强制只查找可见元素
                             if 'visible=true' not in locator_value:
-                                locator = self.page.locator(f"{locator_value} >> visible=true").first
+                                base = self.page.locator(f"{locator_value} >> visible=true")
                             else:
-                                locator = self.page.locator(locator_value).first
+                                base = self.page.locator(locator_value)
                         else:
-                            locator = self.page.locator(locator_value)
+                            base = self.page.locator(locator_value)
                     elif locator_strategy.lower() == 'xpath':
-                        # XPath 定位器
-                        # 如果是下拉框选项，强制只查找可见元素
                         if any(keyword in locator_value.lower() for keyword in ['dropdown', 'el-select', ':has(', 'li']):
                             if 'visible=true' not in locator_value:
-                                locator = self.page.locator(f"xpath={locator_value} >> visible=true").first
+                                base = self.page.locator(f"xpath={locator_value} >> visible=true")
                             else:
-                                locator = self.page.locator(f"xpath={locator_value}").first
-                        # 如果 XPath 已经包含索引 [n]，不要添加 .first（会冲突）
-                        elif '[' in locator_value and ']' in locator_value:
-                            locator = self.page.locator(f'xpath={locator_value}')
+                                base = self.page.locator(f"xpath={locator_value}")
                         else:
-                            # 如果没有索引，添加 .first 避免 strict mode violation
-                            locator = self.page.locator(f'xpath={locator_value}').first
+                            base = self.page.locator(f'xpath={locator_value}')
                     elif locator_strategy.lower() == 'text':
-                        locator = self.page.get_by_text(locator_value)
+                        base = self.page.get_by_text(locator_value)
                     elif locator_strategy.lower() == 'name':
-                        locator = self.page.locator(f'[name="{locator_value}"]')
+                        base = self.page.locator(f'[name="{locator_value}"]')
                     elif locator_strategy.lower() == 'placeholder':
-                        locator = self.page.get_by_placeholder(locator_value)
+                        base = self.page.get_by_placeholder(locator_value)
                     elif locator_strategy.lower() == 'role':
                         if '|' in str(locator_value):
                             role, name = str(locator_value).split('|', 1)
-                            locator = self.page.get_by_role(role, name=name)
+                            base = self.page.get_by_role(role, name=name)
                         else:
-                            locator = self.page.get_by_role(locator_value)
+                            base = self.page.get_by_role(locator_value)
                     elif locator_strategy.lower() == 'label':
-                        locator = self.page.get_by_label(locator_value)
+                        base = self.page.get_by_label(locator_value)
                     elif locator_strategy.lower() == 'title':
-                        locator = self.page.get_by_title(locator_value)
+                        base = self.page.get_by_title(locator_value)
                     elif locator_strategy.lower() == 'test-id':
-                        locator = self.page.get_by_test_id(locator_value)
+                        base = self.page.get_by_test_id(locator_value)
                     else:
-                        # 默认使用CSS选择器
-                        locator = self.page.locator(locator_value)
+                        base = self.page.locator(locator_value)
 
-                    # Probe visibility with short timeout for fallback
-                    await locator.first.wait_for(state='attached', timeout=min(timeout_ms, 3000))
+                    match_count = await base.count()
+                    if match_count == 0:
+                        raise Exception(f'元素未找到: {locator_strategy}={locator_value}')
+
+                    if match_count == 1:
+                        locator = base
+                    else:
+                        # 多匹配：先试可见元素；仍多个则换下一个候选（backup）
+                        # 禁止「probe 用 .first 成功、action 用裸 locator」导致 strict mode
+                        vis = None
+                        strat = locator_strategy.lower()
+                        val = str(locator_value)
+                        if 'visible=true' not in val.lower() and 'nth=' not in val.lower():
+                            if strat == 'id':
+                                vis = self.page.locator(f'#{val} >> visible=true')
+                            elif strat in ('css', 'css selector'):
+                                vis = self.page.locator(f'{val} >> visible=true')
+                            elif strat == 'xpath':
+                                vis = self.page.locator(f'xpath={val} >> visible=true')
+
+                        if vis is not None:
+                            vis_count = await vis.count()
+                            if vis_count == 1:
+                                locator = vis
+                            elif vis_count > 1:
+                                # 与独立脚本 .first 对齐，避免用例因 strict mode 失败
+                                locator = vis.first
+                            elif match_count > 0:
+                                locator = base.first
+                            else:
+                                last_locate_error = Exception(
+                                    f'strict mode violation: locator("{locator_strategy}={locator_value}") '
+                                    f'resolved to {match_count} elements'
+                                )
+                                locator = None
+                                continue
+                        else:
+                            locator = base.first
+
+                    await locator.wait_for(state='attached', timeout=min(timeout_ms, 3000))
+                    self.last_locator_hit = {
+                        'strategy': locator_strategy,
+                        'value': locator_value,
+                        'used_backup': not bool(candidate.get('is_primary', True)),
+                        'element_id': element_data.get('id'),
+                        'match_count': match_count,
+                    }
                     if not candidate.get('is_primary', True):
                         logger.info(f"备用定位器命中: {locator_strategy}={locator_value}")
                     break
@@ -418,6 +617,13 @@ class PlaywrightTestEngine:
                     continue
 
             if locator is None:
+                try:
+                    snippet = await self.page.evaluate(
+                        "() => (document.body && (document.body.innerText || '').slice(0, 500)) || ''"
+                    )
+                    self.last_dom_snippet = (snippet or '')[:2000]
+                except Exception:
+                    self.last_dom_snippet = ''
                 raise last_locate_error or Exception(f'无法定位元素: {element_name}')
 
             # 执行操作
@@ -780,7 +986,22 @@ class PlaywrightTestEngine:
                 return True, log, None
 
             elif action_type == 'hover':
-                await locator.hover(timeout=timeout_ms, force=force_action)
+                # 严格回放：悬停失败即失败（与录制步骤一致）
+                try:
+                    await locator.scroll_into_view_if_needed(timeout=min(2000, timeout_ms))
+                except Exception:
+                    pass
+                try:
+                    await locator.hover(timeout=timeout_ms, force=force_action)
+                except Exception as hover_err:
+                    if force_action:
+                        raise
+                    err_l = str(hover_err).lower()
+                    if 'not visible' in err_l or 'timeout' in err_l:
+                        await locator.hover(timeout=timeout_ms, force=True)
+                        force_action = True
+                    else:
+                        raise
                 execution_time = round(time.time() - start_time, 2)
                 log = f"✓ 在元素 '{element_name}' 上悬停成功\n"
                 log += f"  - 定位器: {locator_strategy}={locator_value}\n"

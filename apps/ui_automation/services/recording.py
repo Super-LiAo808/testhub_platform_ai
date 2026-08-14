@@ -81,10 +81,19 @@ INJECT_SCRIPT = r"""
     return true;
   };
 
-  const labelOf = (t) => ((t.innerText || t.value || t.getAttribute('aria-label') || t.getAttribute('title') || t.tagName || '') + '').trim().slice(0, 80);
+  const labelOf = (t) => {
+    const raw = ((t.innerText || t.value || t.getAttribute('aria-label') || t.getAttribute('title') || t.tagName || '') + '');
+    return raw.replace(/\\s+/g, ' ').trim().slice(0, 80);
+  };
 
   const hoverable = (el) => {
     if (!interesting(el)) return false;
+    // 内容区普通链接悬停对回放无价值
+    try {
+      if (el.closest && el.closest(
+        '.article-item, .article-item-box, .column_article_list, .article-title, .article-desc, .blog-content-box'
+      )) return false;
+    } catch (err) {}
     const tag = (el.tagName || '').toLowerCase();
     if (['html', 'body', 'main', 'section', 'article', 'form'].includes(tag)) return false;
     if (el.matches && el.matches('a,button,li,[role="menuitem"],[role="button"],[role="tab"],[role="link"],[aria-haspopup],.el-submenu,.el-submenu__title,.el-dropdown,.el-dropdown-selfdefine,.ant-dropdown-trigger,.menu-item,.nav-item')) {
@@ -109,6 +118,13 @@ INJECT_SCRIPT = r"""
       type: 'click',
       selectors: buildSelectors(t),
       description: labelOf(t),
+      href: (function () {
+        try {
+          const a = (t.closest && t.closest('a[href]')) || (t.tagName === 'A' ? t : null);
+          if (!a) return '';
+          return a.href || a.getAttribute('href') || '';
+        } catch (err) { return ''; }
+      })(),
     });
   }, true);
 
@@ -367,6 +383,10 @@ def start_recording_session(session) -> None:
         # Allow unsafe ORM fallback if any call slips through
         os.environ['DJANGO_ALLOW_ASYNC_UNSAFE'] = 'true'
 
+        from apps.ui_automation.playwright_engine import ensure_windows_proactor_event_loop
+        # Windows + Daphne：工作线程也必须用 Proactor，否则 sync_playwright 起子进程会 NotImplementedError
+        ensure_windows_proactor_event_loop()
+
         playwright = None
         browser = None
         raw_events: List[Dict[str, Any]] = list(initial_events)
@@ -414,9 +434,9 @@ def start_recording_session(session) -> None:
             return events
 
         try:
-            from playwright.sync_api import sync_playwright
+            from apps.ui_automation.playwright_engine import start_sync_playwright
 
-            playwright = sync_playwright().start()
+            playwright = start_sync_playwright()
             browser = playwright.chromium.launch(headless=False, args=['--start-maximized'])
             context = browser.new_context(no_viewport=True)
             page = context.new_page()
@@ -693,4 +713,19 @@ def finalize_and_compile(session, *, name: str = '', created_by=None, auto_compi
         created_by=created_by or session.created_by,
         commit=True,
     )
+    # 录制生成用例时创建配套脚本（已存在且不一致则不覆盖）
+    if test_case:
+        try:
+            from apps.ui_automation.services.codegen import export_testcase_to_script
+            script, meta = export_testcase_to_script(test_case, engine='playwright', force=False)
+            preview = dict(preview or {})
+            preview['linked_script_id'] = script.id
+            preview['linked_script_name'] = script.name
+            preview['script_sync'] = meta.get('sync_status')
+            preview['script_skipped_overwrite'] = bool(meta.get('skipped'))
+        except Exception:
+            logger.exception(
+                'sync linked script after recording compile failed (case_id=%s)',
+                getattr(test_case, 'id', None),
+            )
     return test_case, preview

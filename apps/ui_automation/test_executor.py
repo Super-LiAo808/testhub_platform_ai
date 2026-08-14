@@ -367,6 +367,27 @@ class TestExecutor:
                         case_execution.screenshots = case_result['screenshots']
                     case_execution.save()
 
+                    # 备用定位命中 → 升格提案
+                    try:
+                        from apps.ui_automation.models import Element
+                        from apps.ui_automation.services.diagnosis import create_promote_backup_proposal
+                        for st in case_result.get('steps') or []:
+                            if not st.get('used_backup') or not st.get('element_id') or not st.get('locator_used'):
+                                continue
+                            el = Element.objects.filter(id=st['element_id']).first()
+                            if not el:
+                                continue
+                            create_promote_backup_proposal(
+                                project=case_execution.project,
+                                element=el,
+                                locator=st['locator_used'],
+                                execution_type='testcase',
+                                execution_id=case_execution.id,
+                                created_by=self.executed_by,
+                            )
+                    except Exception as promote_exc:
+                        print(f'⚠️  升格提案创建失败: {promote_exc}')
+
                     print(f"⏱️  执行时长: {case_execution.execution_time:.2f}秒")
 
                     if case_result['status'] == 'passed':
@@ -643,14 +664,54 @@ class TestExecutor:
             'success': False,
             'error': None
         }
+        try:
+            from apps.ui_automation.services.diagnosis import enrich_step_result_meta
+            enrich_step_result_meta(step_result, step_data)
+        except Exception:
+            pass
 
         try:
-            # 获取元素定位器
+            # 获取元素定位器（主 + 备用回退）
             if step_data['element']:
+                from apps.ui_automation.services.locator_resolve import build_locator_candidates
                 element = step_data['element']
-                locator_value = element['locator_value']
-                locator_strategy = element['locator_strategy'].lower()
                 element_name = element.get('name', '未知元素')
+                candidates = build_locator_candidates(element)
+                locator_value = element.get('locator_value') or ''
+                locator_strategy = (element.get('locator_strategy') or 'css').lower()
+                hit = None
+                for candidate in candidates:
+                    locator_value = candidate['value']
+                    locator_strategy = (candidate.get('strategy') or 'css').lower()
+                    # Probe with short timeout
+                    try:
+                        if locator_strategy in ['css', 'css selector']:
+                            selector = locator_value
+                        elif locator_strategy == 'xpath':
+                            selector = f'xpath={locator_value}'
+                        elif locator_strategy == 'id':
+                            selector = f'#{locator_value}'
+                        elif locator_strategy == 'name':
+                            selector = f'[name="{locator_value}"]'
+                        elif locator_strategy == 'text':
+                            selector = f'text={locator_value}'
+                        else:
+                            selector = locator_value
+                        self.current_page.locator(selector).first.wait_for(state='attached', timeout=2000)
+                        hit = candidate
+                        step_result['locator_used'] = {
+                            'strategy': candidate.get('strategy') or 'css',
+                            'value': locator_value,
+                        }
+                        step_result['used_backup'] = not bool(candidate.get('is_primary', True))
+                        step_result['element_id'] = element.get('id')
+                        break
+                    except Exception:
+                        continue
+                if hit is None and candidates:
+                    # keep primary for error path
+                    locator_value = candidates[0]['value']
+                    locator_strategy = (candidates[0].get('strategy') or 'css').lower()
 
                 # 根据定位策略构造 Playwright 选择器
                 if locator_strategy in ['css', 'css selector']:
@@ -1909,6 +1970,11 @@ class TestExecutor:
             'success': False,
             'error': None
         }
+        try:
+            from apps.ui_automation.services.diagnosis import enrich_step_result_meta
+            enrich_step_result_meta(step_result, step_data)
+        except Exception:
+            pass
 
         try:
             if step_data['element']:

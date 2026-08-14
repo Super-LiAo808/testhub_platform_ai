@@ -52,8 +52,17 @@
         <el-button size="small" :disabled="!compiledCaseId" :loading="exportingScript" @click="exportScript">
           导出源码
         </el-button>
+        <el-button
+          v-if="diagnosis"
+          type="info"
+          size="small"
+          plain
+          @click="showDiagnosis = true"
+        >
+          查看自愈诊断
+        </el-button>
         <el-button type="warning" size="small" :loading="diagnosing" @click="runDiagnose">
-          AI 诊断失败
+          {{ diagnosis ? '重新 AI 诊断' : 'AI 诊断失败' }}
         </el-button>
       </div>
 
@@ -62,6 +71,7 @@
         :diagnosis="diagnosis"
         :proposals="proposals"
         :loading="diagnosing"
+        @refresh="loadExistingDiagnosis"
       />
 
       <!-- 摘要报告 -->
@@ -282,7 +292,15 @@ import { useI18n } from 'vue-i18n'
 import { Loading, VideoPlay, Download } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
 import * as echarts from 'echarts'
-import { getAIExecutionReport, exportAIExecutionReportPDF, compileAIExecutionToTestCase, exportTestCaseScript, diagnoseAIExecution, syncAIExecutionElements } from '@/api/ui_automation'
+import {
+  getAIExecutionReport,
+  exportAIExecutionReportPDF,
+  compileAIExecutionToTestCase,
+  exportTestCaseScript,
+  diagnoseAIExecution,
+  syncAIExecutionElements,
+  listFailureDiagnoses
+} from '@/api/ui_automation'
 import FailureDiagnosisPanel from './FailureDiagnosisPanel.vue'
 
 const { t } = useI18n()
@@ -383,6 +401,7 @@ const loadReport = async (reportType = 'summary') => {
       compiledCaseId.value = reportData.value?.derived_test_case_id || compiledCaseId.value
       syncedElementCount.value = reportData.value?.synced_element_hint ?? syncedElementCount.value
       console.log('Report Data:', reportData.value)
+      await loadExistingDiagnosis()
       await nextTick()
       // 等待DOM更新后再初始化图表
       setTimeout(() => {
@@ -656,6 +675,27 @@ const exportScript = async () => {
     ElMessage.error(e.response?.data?.error || e.message || '导出源码失败')
   } finally {
     exportingScript.value = false
+  }
+}
+
+const loadExistingDiagnosis = async () => {
+  if (!props.recordId) return
+  try {
+    const res = await listFailureDiagnoses({
+      execution_type: 'ai',
+      execution_id: props.recordId
+    })
+    const rows = res.data?.results || res.data || []
+    const latest = Array.isArray(rows) ? rows[0] : null
+    if (latest) {
+      diagnosis.value = latest
+      proposals.value = latest.proposals || latest.fix_proposals || []
+    } else {
+      diagnosis.value = null
+      proposals.value = []
+    }
+  } catch (e) {
+    // 忽略：无历史诊断时保持空
   }
 }
 

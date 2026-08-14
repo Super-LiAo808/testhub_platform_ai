@@ -71,6 +71,7 @@ export default {
     save: '保存',
     delete: '删除',
     edit: '编辑',
+    copy: '复制',
     view: '查看',
     search: '搜索',
     filter: '筛选',
@@ -1059,6 +1060,7 @@ export default {
       renameSuccess: '重命名成功',
       renameFailed: '重命名失败',
       deleteConfirm: '确定要删除脚本"{name}"吗？此操作不可恢复。',
+      batchDeleteConfirm: '确定删除选中的 {count} 个脚本吗？此操作不可恢复。',
       confirmDelete: '确认删除',
       deleteSuccess: '删除成功',
       deleteFailed: '删除失败'
@@ -1262,7 +1264,8 @@ export default {
     },
     // 删除操作消息
     delete: {
-      confirm: '确定要删除测试用例"{name}"吗？',
+      confirm: '确定要删除测试用例"{name}"吗？删除后不可恢复。',
+      batchConfirm: '确定删除选中的 {count} 个测试用例吗？删除后不可恢复。',
       title: '确认删除',
       success: '删除成功'
     },

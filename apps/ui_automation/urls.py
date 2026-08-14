@@ -30,9 +30,11 @@ from .views_pipeline import (
     FailureDiagnosisViewSet,
     AutoFixProposalViewSet,
 )
+from .views_self_healing import SelfHealingViewSet
 
 router = DefaultRouter()
 router.register(r'dashboard', UiDashboardViewSet, basename='dashboard')
+router.register(r'self-healing', SelfHealingViewSet, basename='self-healing')
 router.register(r'projects', UiProjectViewSet)
 router.register(r'locator-strategies', LocatorStrategyViewSet)
 router.register(r'element-groups', ElementGroupViewSet)

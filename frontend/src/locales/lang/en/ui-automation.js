@@ -1059,6 +1059,7 @@ export default {
       renameSuccess: 'Renamed successfully',
       renameFailed: 'Failed to rename',
       deleteConfirm: 'Are you sure to delete script "{name}"? This action cannot be undone.',
+      batchDeleteConfirm: 'Delete {count} selected scripts? This cannot be undone.',
       confirmDelete: 'Confirm Delete',
       deleteSuccess: 'Deleted successfully',
       deleteFailed: 'Failed to delete'
@@ -1263,6 +1264,7 @@ export default {
     // Delete operation messages
     delete: {
       confirm: 'Are you sure to delete test case "{name}"?',
+      batchConfirm: 'Delete {count} selected test cases? This cannot be undone.',
       title: 'Confirm Delete',
       success: 'Deleted successfully'
     },

@@ -114,6 +114,58 @@ class AppTestExecutionViewSet(viewsets.ModelViewSet):
                 'message': f'停止任务失败: {str(e)}'
             }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
+    @action(detail=True, methods=['post'], url_path='diagnose')
+    def diagnose(self, request, pk=None):
+        """APP 执行失败诊断（分类级，不自动改图定位）。"""
+        execution = self.get_object()
+        from apps.ui_automation.services.diagnosis import diagnose_failure, has_diagnosis
+        from apps.ui_automation.serializers import FailureDiagnosisSerializer, AutoFixProposalSerializer
+
+        use_llm = request.data.get('use_llm', True)
+        if has_diagnosis('app', execution.id) and not request.data.get('force'):
+            from apps.ui_automation.models import FailureDiagnosis
+            diagnosis = FailureDiagnosis.objects.filter(
+                execution_type='app', execution_id=execution.id
+            ).order_by('-created_at').first()
+            return Response({
+                'diagnosis': FailureDiagnosisSerializer(diagnosis).data,
+                'proposals': AutoFixProposalSerializer(diagnosis.fix_proposals.all(), many=True).data,
+                'cached': True,
+            })
+
+        logs = ''
+        try:
+            # step results may live on related fields / JSON
+            logs = str(getattr(execution, 'error_message', '') or '')
+            if hasattr(execution, 'step_results') and execution.step_results:
+                import json
+                logs = json.dumps(execution.step_results, ensure_ascii=False)[:8000]
+        except Exception:
+            pass
+
+        ui_project = None
+        # APP project is not UiProject — leave project null or try name match later
+        diagnosis, proposals = diagnose_failure(
+            execution_type='app',
+            execution_id=execution.id,
+            project=ui_project,
+            logs=logs,
+            error_message=execution.error_message or '',
+            context={
+                'test_case_id': execution.test_case_id,
+                'device_id': execution.device_id,
+                'status': execution.status,
+                'result': execution.result,
+            },
+            created_by=request.user,
+            use_llm=bool(use_llm),
+            auto_apply=False,
+        )
+        return Response({
+            'diagnosis': FailureDiagnosisSerializer(diagnosis).data,
+            'proposals': AutoFixProposalSerializer(proposals, many=True).data,
+        })
+
 
 @csrf_exempt
 def serve_report_file(request, execution_id, file_path=''):

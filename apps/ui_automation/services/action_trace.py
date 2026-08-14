@@ -446,9 +446,17 @@ def normalize_actions_from_trace(trace: List[Dict[str, Any]]) -> List[Dict[str, 
 
 
 def normalize_recording_events(raw_events: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-    """Convert Playwright recording events into normalized_actions."""
+    """Convert Playwright recording events into normalized_actions.
+
+    仅剔除站点壳层噪声（登录遮罩等）；业务操作一律保留。
+    回放必须严格按归一化后的步骤执行，不得软跳过。
+    """
     normalized: List[Dict[str, Any]] = []
     order = 1
+    chrome_noise_keys = (
+        'passport-login', 'login-container', 'login-box',
+        'body.nodata', 'cookie-banner', 'cookie_consent',
+    )
     for event in raw_events or []:
         etype = (event.get('type') or event.get('action') or '').lower()
         selectors = event.get('selectors') or event.get('locators') or []
@@ -464,6 +472,16 @@ def normalize_recording_events(raw_events: List[Dict[str, Any]]) -> List[Dict[st
                     'value': sel['value'],
                 })
 
+        # 录制阶段剔除站点壳层（登录弹窗关闭等），避免写入用例后回放误报/漏报
+        desc = str(event.get('description') or '')
+        locator_blob = ' '.join(str(l.get('value') or '') for l in locators)
+        noise_blob = f'{desc} {locator_blob}'
+        if etype in ('click', 'dblclick', 'hover', 'mouseover', 'mouseenter') and any(
+            k in noise_blob for k in chrome_noise_keys
+        ):
+            logger.info('normalize_recording_events: drop site chrome noise: %s', desc or locator_blob[:80])
+            continue
+
         if etype in ('goto', 'navigate', 'open'):
             action_type, needs_element = 'navigate', False
             input_value = event.get('url') or event.get('value') or ''
@@ -474,7 +492,18 @@ def normalize_recording_events(raw_events: List[Dict[str, Any]]) -> List[Dict[st
             description = event.get('description') or '输入文本'
         elif etype in ('click', 'dblclick'):
             action_type, needs_element = 'click', True
-            input_value = ''
+            href = (event.get('href') or '').strip()
+            page_url = (event.get('url') or '').strip()
+            if href.startswith('http://') or href.startswith('https://'):
+                input_value = href
+            elif href and page_url:
+                try:
+                    from urllib.parse import urljoin
+                    input_value = urljoin(page_url, href)
+                except Exception:
+                    input_value = href
+            else:
+                input_value = href
             description = event.get('description') or '点击元素'
         elif etype in ('hover', 'mouseover', 'mouseenter'):
             action_type, needs_element = 'hover', True

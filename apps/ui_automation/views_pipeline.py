@@ -31,7 +31,13 @@ from .serializers import (
 from .services.action_trace import normalize_actions_from_trace, normalize_recording_events
 from .services.codegen import export_testcase_to_script
 from .services.compiler import compile_actions_to_testcase, compile_trace_to_testcase, preview_compile
-from .services.diagnosis import apply_test_asset_fix, create_defect_from_diagnosis, diagnose_failure
+from .services.diagnosis import (
+    apply_test_asset_fix,
+    create_defect_from_diagnosis,
+    diagnose_failure,
+    enrich_fix_payload,
+    rollback_test_asset_fix,
+)
 from .services.recording import (
     finalize_and_compile,
     get_live_events,
@@ -73,6 +79,19 @@ class UIActionTraceViewSet(viewsets.ReadOnlyModelViewSet):
             )
             data = {'preview': preview}
             if test_case:
+                if commit:
+                    try:
+                        script, meta = export_testcase_to_script(
+                            test_case, engine='playwright', force=False
+                        )
+                        data['script'] = TestScriptSerializer(script).data
+                        data['script_meta'] = meta
+                        preview = dict(preview or {})
+                        preview['linked_script_id'] = script.id
+                        preview['script_skipped_overwrite'] = bool(meta.get('skipped'))
+                        data['preview'] = preview
+                    except Exception:
+                        logger.exception('sync linked script after trace compile failed')
                 data['test_case'] = TestCaseSerializer(test_case).data
             return Response(data)
         except Exception as exc:
@@ -143,7 +162,14 @@ class RecordingSessionViewSet(viewsets.ModelViewSet):
                     data['preview'] = preview
                     if test_case:
                         data['test_case'] = TestCaseSerializer(test_case).data
-                        data['message'] = f'录制已停止，已生成回归用例 #{test_case.id}'
+                        script_id = (preview or {}).get('linked_script_id')
+                        if script_id:
+                            data['script_id'] = script_id
+                            data['message'] = (
+                                f'录制已停止，已生成回归用例 #{test_case.id} 及配套脚本 #{script_id}'
+                            )
+                        else:
+                            data['message'] = f'录制已停止，已生成回归用例 #{test_case.id}'
                     else:
                         data['message'] = '录制已停止，但未生成用例'
                 except Exception as compile_exc:
@@ -173,6 +199,9 @@ class RecordingSessionViewSet(viewsets.ModelViewSet):
             data = {'preview': preview, 'session': RecordingSessionSerializer(session).data}
             if test_case:
                 data['test_case'] = TestCaseSerializer(test_case).data
+                script_id = (preview or {}).get('linked_script_id')
+                if script_id:
+                    data['script_id'] = script_id
             return Response(data)
         except Exception as exc:
             return Response({'error': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
@@ -199,16 +228,25 @@ def _get_runtime_ready(session_id: int) -> bool:
 class FailureDiagnosisViewSet(viewsets.ReadOnlyModelViewSet):
     permission_classes = [IsAuthenticated]
     serializer_class = FailureDiagnosisSerializer
-    queryset = FailureDiagnosis.objects.all().order_by('-created_at')
+    queryset = FailureDiagnosis.objects.all().prefetch_related('fix_proposals').order_by('-created_at')
 
     def get_queryset(self):
         qs = super().get_queryset()
         execution_type = self.request.query_params.get('execution_type')
         execution_id = self.request.query_params.get('execution_id')
+        project_id = self.request.query_params.get('project') or self.request.query_params.get('project_id')
+        category = self.request.query_params.get('category')
+        status_q = self.request.query_params.get('status')
         if execution_type:
             qs = qs.filter(execution_type=execution_type)
         if execution_id:
             qs = qs.filter(execution_id=execution_id)
+        if project_id:
+            qs = qs.filter(project_id=project_id)
+        if category:
+            qs = qs.filter(category=category)
+        if status_q:
+            qs = qs.filter(status=status_q)
         return qs
 
     @action(detail=True, methods=['post'], url_path='apply-script-fix')
@@ -221,20 +259,42 @@ class FailureDiagnosisViewSet(viewsets.ReadOnlyModelViewSet):
         proposal = proposals.order_by('-created_at').first()
         if not proposal:
             return Response({'error': '没有可应用的测试侧修复提案'}, status=status.HTTP_400_BAD_REQUEST)
-        # Enrich payload with element/step from request if provided
         payload = dict(proposal.patch_payload or {})
-        for key in ('element_id', 'step_id', 'locator', 'wait_timeout', 'type', 'replace_primary'):
+        for key in ('element_id', 'step_id', 'locator', 'wait_timeout', 'type', 'replace_primary', 'candidate_locators'):
             if key in request.data:
                 payload[key] = request.data[key]
-        if 'type' not in payload:
-            if diagnosis.category == 'timing':
-                payload['type'] = 'increase_wait'
-            else:
-                payload['type'] = 'add_backup_locator'
+        evidence_ctx = {}
+        if isinstance(diagnosis.evidence, dict):
+            evidence_ctx = dict(diagnosis.evidence.get('context') or {})
+        for key in ('element_id', 'step_id', 'locator'):
+            if key in request.data:
+                evidence_ctx[key] = request.data[key]
+        payload = enrich_fix_payload(payload, evidence_ctx, category=diagnosis.category)
         proposal.patch_payload = payload
         proposal.save(update_fields=['patch_payload', 'updated_at'])
+        run_verify = request.data.get('verify', True)
         try:
-            result = apply_test_asset_fix(proposal, applied_by=request.user)
+            result = apply_test_asset_fix(
+                proposal, applied_by=request.user, run_verify=bool(run_verify)
+            )
+            if result.get('verify_status') == 'failed':
+                result['hint'] = '验证失败，建议回滚修复'
+            return Response(result)
+        except Exception as exc:
+            return Response({'error': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+
+    @action(detail=True, methods=['post'], url_path='rollback-script-fix')
+    def rollback_script_fix(self, request, pk=None):
+        diagnosis = self.get_object()
+        proposal_id = request.data.get('proposal_id')
+        proposals = diagnosis.fix_proposals.filter(target='test_asset', status='applied')
+        if proposal_id:
+            proposals = proposals.filter(id=proposal_id)
+        proposal = proposals.order_by('-applied_at', '-created_at').first()
+        if not proposal:
+            return Response({'error': '没有可回滚的已应用提案'}, status=status.HTTP_400_BAD_REQUEST)
+        try:
+            result = rollback_test_asset_fix(proposal, rolled_back_by=request.user)
             return Response(result)
         except Exception as exc:
             return Response({'error': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
@@ -459,22 +519,36 @@ def export_testcase_script_response(test_case: TestCase, request) -> Response:
     engine = (request.data.get('engine') or 'playwright').lower()
     if engine not in ('playwright', 'selenium'):
         return Response({'error': 'engine 须为 playwright 或 selenium'}, status=400)
-    script = export_testcase_to_script(test_case, engine=engine)
-    return Response(TestScriptSerializer(script).data, status=201)
+    force = bool(request.data.get('force', False))
+    script, meta = export_testcase_to_script(test_case, engine=engine, force=force)
+    payload = {
+        **TestScriptSerializer(script).data,
+        'meta': meta,
+        'sync_status': meta.get('sync_status'),
+    }
+    if meta.get('skipped'):
+        return Response(payload, status=status.HTTP_409_CONFLICT)
+    return Response(payload, status=status.HTTP_201_CREATED if meta.get('created') else status.HTTP_200_OK)
 
 
 def diagnose_ai_execution(execution_record: AIExecutionRecord, request) -> Response:
+    from .services.diagnosis import resolve_ai_failure_context
+
+    context = resolve_ai_failure_context(
+        execution_record,
+        extra={
+            'element_id': request.data.get('element_id'),
+            'step_id': request.data.get('step_id'),
+            'locator': request.data.get('locator'),
+        },
+    )
     diagnosis, proposals = diagnose_failure(
         execution_type='ai',
         execution_id=execution_record.id,
         project=execution_record.project,
         logs=execution_record.logs or '',
         error_message='',
-        context={
-            'case_name': execution_record.case_name,
-            'status': execution_record.status,
-            'planned_tasks': execution_record.planned_tasks,
-        },
+        context=context,
         created_by=request.user,
         use_llm=request.data.get('use_llm', True),
     )
@@ -485,32 +559,26 @@ def diagnose_ai_execution(execution_record: AIExecutionRecord, request) -> Respo
 
 
 def diagnose_testcase_execution(execution: TestCaseExecution, request) -> Response:
+    from .services.diagnosis import resolve_testcase_failure_context
+
+    context = resolve_testcase_failure_context(
+        execution,
+        extra={
+            'element_id': request.data.get('element_id'),
+            'step_id': request.data.get('step_id'),
+            'locator': request.data.get('locator'),
+        },
+    )
     diagnosis, proposals = diagnose_failure(
         execution_type='testcase',
         execution_id=execution.id,
         project=execution.project,
         logs=execution.execution_logs or '',
         error_message=execution.error_message or '',
-        context={
-            'test_case_id': execution.test_case_id,
-            'engine': execution.engine,
-            'status': execution.status,
-        },
+        context=context,
         created_by=request.user,
         use_llm=request.data.get('use_llm', True),
     )
-    # Attach first failed step element id if available from request
-    element_id = request.data.get('element_id')
-    step_id = request.data.get('step_id')
-    for proposal in proposals:
-        if proposal.target == 'test_asset':
-            payload = dict(proposal.patch_payload or {})
-            if element_id:
-                payload['element_id'] = element_id
-            if step_id:
-                payload['step_id'] = step_id
-            proposal.patch_payload = payload
-            proposal.save(update_fields=['patch_payload', 'updated_at'])
     return Response({
         'diagnosis': FailureDiagnosisSerializer(diagnosis).data,
         'proposals': AutoFixProposalSerializer(proposals, many=True).data,

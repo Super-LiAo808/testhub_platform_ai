@@ -1,133 +1,151 @@
 <template>
-  <div class="page-container">
+  <div class="page-container execution-page">
     <div class="page-header">
-      <h1 class="page-title">{{ $t('uiAutomation.execution.title') }}</h1>
-      <el-select v-model="projectId" :placeholder="$t('uiAutomation.common.selectProject')" style="width: 200px; margin-right: 15px" @change="onProjectChange">
-        <el-option v-for="project in projects" :key="project.id" :label="project.name" :value="project.id" />
-      </el-select>
+      <div class="header-left">
+        <h1 class="page-title">{{ $t('uiAutomation.execution.title') }}</h1>
+        <p class="page-subtitle">用例与脚本执行历史，支持详情、重跑与自愈诊断</p>
+      </div>
+      <div class="header-actions">
+        <el-select
+          v-model="projectId"
+          :placeholder="$t('uiAutomation.common.selectProject')"
+          filterable
+          clearable
+          style="width: 220px"
+          @change="onProjectChange"
+        >
+          <el-option v-for="project in projects" :key="project.id" :label="project.name" :value="project.id" />
+        </el-select>
+        <el-button @click="loadExecutions" :loading="loading">
+          <el-icon><Refresh /></el-icon>
+          刷新
+        </el-button>
+      </div>
     </div>
 
     <div class="card-container">
       <div class="filter-bar">
-        <el-form :inline="true" :model="queryParams" class="demo-form-inline">
-          <el-form-item :label="$t('uiAutomation.common.search')">
-            <el-input
-              v-model="queryParams.search"
-              :placeholder="$t('uiAutomation.execution.searchPlaceholder')"
-              clearable
-              @keyup.enter="handleSearch"
-            >
-              <template #prefix>
-                <el-icon><Search /></el-icon>
-              </template>
-            </el-input>
-          </el-form-item>
-          <el-form-item :label="$t('uiAutomation.common.status')">
-            <el-select v-model="queryParams.status" :placeholder="$t('uiAutomation.execution.statusFilter')" clearable>
-              <el-option :label="$t('uiAutomation.status.pending')" value="pending" />
-              <el-option :label="$t('uiAutomation.status.running')" value="running" />
-              <el-option :label="$t('uiAutomation.status.passed')" value="passed" />
-              <el-option :label="$t('uiAutomation.status.failed')" value="failed" />
-              <el-option :label="$t('uiAutomation.status.error')" value="error" />
-            </el-select>
-          </el-form-item>
-          <el-form-item :label="$t('uiAutomation.execution.browserFilter')">
-            <el-select v-model="queryParams.browser" :placeholder="$t('uiAutomation.execution.browserFilter')" clearable>
-              <el-option label="Chrome" value="chrome" />
-              <el-option label="Firefox" value="firefox" />
-              <el-option label="Safari" value="safari" />
-              <el-option label="Edge" value="edge" />
-            </el-select>
-          </el-form-item>
-          <el-form-item>
-            <el-button type="primary" @click="handleSearch">{{ $t('uiAutomation.common.query') }}</el-button>
-            <el-button @click="resetQuery">{{ $t('uiAutomation.common.reset') }}</el-button>
-            <el-button
-              type="danger"
-              :disabled="selectedIds.length === 0"
-              @click="handleBatchDelete"
-            >
-              {{ $t('uiAutomation.common.batchDelete') }}
-            </el-button>
-          </el-form-item>
-        </el-form>
+        <el-input
+          v-model="queryParams.search"
+          :placeholder="$t('uiAutomation.execution.searchPlaceholder')"
+          clearable
+          style="width: 220px"
+          @keyup.enter="handleSearch"
+        >
+          <template #prefix>
+            <el-icon><Search /></el-icon>
+          </template>
+        </el-input>
+        <el-select v-model="queryParams.recordType" placeholder="类型" clearable style="width: 120px" @change="handleSearch">
+          <el-option label="全部" value="" />
+          <el-option label="用例" value="case" />
+          <el-option label="脚本" value="script" />
+        </el-select>
+        <el-select v-model="queryParams.status" :placeholder="$t('uiAutomation.execution.statusFilter')" clearable style="width: 120px">
+          <el-option :label="$t('uiAutomation.status.pending')" value="pending" />
+          <el-option :label="$t('uiAutomation.status.running')" value="running" />
+          <el-option :label="$t('uiAutomation.status.passed')" value="passed" />
+          <el-option :label="$t('uiAutomation.status.failed')" value="failed" />
+          <el-option :label="$t('uiAutomation.status.error')" value="error" />
+        </el-select>
+        <el-select v-model="queryParams.browser" :placeholder="$t('uiAutomation.execution.browserFilter')" clearable style="width: 120px">
+          <el-option label="Chrome" value="chrome" />
+          <el-option label="Firefox" value="firefox" />
+          <el-option label="Safari" value="safari" />
+          <el-option label="Edge" value="edge" />
+        </el-select>
+        <el-button type="primary" @click="handleSearch">{{ $t('uiAutomation.common.query') }}</el-button>
+        <el-button @click="resetQuery">{{ $t('uiAutomation.common.reset') }}</el-button>
+        <div class="filter-spacer" />
+        <span class="result-hint">共 {{ displayTotal }} 条</span>
+        <el-button
+          type="danger"
+          plain
+          :disabled="selectedIds.length === 0"
+          @click="handleBatchDelete"
+        >
+          {{ $t('uiAutomation.common.batchDelete') }}
+          <template v-if="selectedIds.length"> ({{ selectedIds.length }})</template>
+        </el-button>
       </div>
 
-      <el-table :data="executions" v-loading="loading" style="width: 100%" @selection-change="handleSelectionChange">
-        <el-table-column type="selection" width="55" align="center" />
-        <el-table-column prop="id" label="ID" width="80" align="center" />
-        <el-table-column prop="test_case_name" :label="$t('uiAutomation.execution.caseName')" min-width="200">
-          <template #default="{ row }">
-            <el-link @click="viewExecutionDetail(row)" type="primary">
-              {{ row.test_case_name }}
-            </el-link>
+      <el-table
+        :data="filteredExecutions"
+        v-loading="loading"
+        class="data-table"
+        row-key="id"
+        @selection-change="handleSelectionChange"
+      >
+        <el-table-column type="selection" width="48" align="center" />
+        <el-table-column label="序号" width="70" align="center">
+          <template #default="{ $index }">
+            <span class="row-index">{{ reverseIndex($index) }}</span>
           </template>
         </el-table-column>
-        <el-table-column :label="$t('uiAutomation.execution.relatedObject')" width="100" align="center">
+        <el-table-column prop="test_case_name" :label="$t('uiAutomation.execution.caseName')" min-width="200" show-overflow-tooltip>
           <template #default="{ row }">
-            <el-tag v-if="!row.test_suite" type="info" size="small">{{ $t('uiAutomation.execution.case') }}</el-tag>
-            <el-tag v-else type="warning" size="small">{{ $t('uiAutomation.execution.suiteTag') }}</el-tag>
+            <button type="button" class="name-link" @click="viewExecutionDetail(row)">{{ row.test_case_name }}</button>
           </template>
         </el-table-column>
-        <el-table-column prop="status" :label="$t('uiAutomation.execution.statusFilter')" width="100" align="center">
+        <el-table-column :label="$t('uiAutomation.execution.relatedObject')" width="90" align="center">
           <template #default="{ row }">
-            <el-tag :type="getStatusType(row.status)" size="small">{{ getStatusText(row.status) }}</el-tag>
+            <el-tag v-if="row.record_type === 'script'" type="success" size="small" effect="plain">脚本</el-tag>
+            <el-tag v-else-if="row.test_suite" type="warning" size="small" effect="plain">{{ $t('uiAutomation.execution.suiteTag') }}</el-tag>
+            <el-tag v-else type="info" size="small" effect="plain">{{ $t('uiAutomation.execution.case') }}</el-tag>
           </template>
         </el-table-column>
-        <el-table-column prop="engine" :label="$t('uiAutomation.execution.testEngine')" width="120" align="center">
+        <el-table-column prop="status" :label="$t('uiAutomation.execution.statusFilter')" width="96" align="center">
+          <template #default="{ row }">
+            <el-tag :type="getStatusType(row.status)" size="small" effect="plain">{{ getStatusText(row.status) }}</el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column prop="engine" :label="$t('uiAutomation.execution.testEngine')" width="110" align="center">
           <template #default="{ row }">
             {{ getEngineText(row.engine) }}
-          </template>
-        </el-table-column>
-        <el-table-column prop="headless" :label="$t('uiAutomation.execution.executionMode')" width="100" align="center">
-          <template #default="{ row }">
-            {{ row.headless ? $t('uiAutomation.execution.headlessMode') : $t('uiAutomation.execution.headedMode') }}
           </template>
         </el-table-column>
         <el-table-column prop="browser" :label="$t('uiAutomation.execution.browserFilter')" width="100" align="center">
           <template #default="{ row }">
             {{ getBrowserText(row.browser) }}
+            <span class="mode-hint">{{ row.headless ? '无头' : '有头' }}</span>
           </template>
         </el-table-column>
-        <el-table-column prop="created_by_name" :label="$t('uiAutomation.execution.executor')" width="120" align="center" />
-        <el-table-column prop="started_at" :label="$t('uiAutomation.execution.startTime')" width="180" align="center">
+        <el-table-column prop="created_by_name" :label="$t('uiAutomation.execution.executor')" width="100" align="center" />
+        <el-table-column prop="started_at" :label="$t('uiAutomation.execution.startTime')" width="170" align="center">
           <template #default="{ row }">
             {{ formatDateTime(row.started_at) }}
           </template>
         </el-table-column>
-        <el-table-column prop="finished_at" :label="$t('uiAutomation.execution.endTime')" width="180" align="center">
-          <template #default="{ row }">
-            {{ formatDateTime(row.finished_at) }}
-          </template>
-        </el-table-column>
-        <el-table-column :label="$t('uiAutomation.execution.duration')" width="120" align="center">
+        <el-table-column :label="$t('uiAutomation.execution.duration')" width="100" align="center">
           <template #default="{ row }">
             {{ formatDuration(row.execution_time) }}
           </template>
         </el-table-column>
-        <el-table-column :label="$t('uiAutomation.common.operation')" width="200" fixed="right" align="center">
+        <el-table-column :label="$t('uiAutomation.common.operation')" width="220" fixed="right" align="center">
           <template #default="{ row }">
             <div class="table-actions">
               <el-button size="small" type="primary" link @click="viewExecutionDetail(row)">
-                <el-icon><View /></el-icon>
                 {{ $t('uiAutomation.common.details') }}
               </el-button>
               <el-button
-                v-if="row.status === 'failed' || row.status === 'error'"
+                v-if="row.record_type !== 'script' && (row.status === 'failed' || row.status === 'error')"
                 size="small"
                 type="warning"
                 link
                 @click="showRerunDialog(row)"
               >
-                <el-icon><Refresh /></el-icon>
                 {{ $t('uiAutomation.common.rerun') }}
               </el-button>
               <el-button
-                link
-                type="danger"
+                v-if="row.status === 'failed' || row.status === 'error'"
                 size="small"
-                @click="handleDelete(row)"
+                type="success"
+                link
+                @click="openHealDiagnosis(row)"
               >
+                自愈
+              </el-button>
+              <el-button link type="danger" size="small" @click="handleDelete(row)">
                 {{ $t('uiAutomation.common.delete') }}
               </el-button>
             </div>
@@ -149,7 +167,7 @@
     </div>
 
     <!-- 执行详情对话框 -->
-    <el-dialog v-model="showDetailDialog" :title="$t('uiAutomation.execution.executionDetail')" width="900px">
+    <el-dialog v-model="showDetailDialog" :title="$t('uiAutomation.execution.executionDetail')" width="900px" class="detail-dialog">
       <div v-if="currentExecution" class="execution-detail">
         <!-- 基本信息 -->
         <el-descriptions :column="2" border>
@@ -170,19 +188,24 @@
           <el-tab-pane :label="$t('uiAutomation.execution.executionLogs')" name="logs">
             <div class="logs-container">
               <div v-if="currentExecution.execution_logs">
-                <div v-for="(step, index) in parseExecutionLogs(currentExecution.execution_logs)" :key="index" class="log-item">
-                  <div class="log-header">
-                    <el-tag :type="step.success ? 'success' : 'danger'" size="small">
-                      {{ $t('uiAutomation.execution.step') }} {{ step.step_number }}
-                    </el-tag>
-                    <span class="log-action">{{ getActionText(step.action_type) }}</span>
-                    <span class="log-desc">{{ step.description }}</span>
+                <template v-if="currentExecution.record_type === 'script'">
+                  <pre class="error-text">{{ currentExecution.execution_logs }}</pre>
+                </template>
+                <template v-else>
+                  <div v-for="(step, index) in parseExecutionLogs(currentExecution.execution_logs)" :key="index" class="log-item">
+                    <div class="log-header">
+                      <el-tag :type="step.success ? 'success' : 'danger'" size="small">
+                        {{ $t('uiAutomation.execution.step') }} {{ step.step_number }}
+                      </el-tag>
+                      <span class="log-action">{{ getActionText(step.action_type) }}</span>
+                      <span class="log-desc">{{ step.description }}</span>
+                    </div>
+                    <div v-if="step.error" class="log-error">
+                      <el-icon><WarningFilled /></el-icon>
+                      <pre class="error-message">{{ step.error }}</pre>
+                    </div>
                   </div>
-                  <div v-if="step.error" class="log-error">
-                    <el-icon><WarningFilled /></el-icon>
-                    <pre class="error-message">{{ step.error }}</pre>
-                  </div>
-                </div>
+                </template>
               </div>
               <el-empty v-else :description="$t('uiAutomation.execution.noLogs')" />
             </div>
@@ -225,6 +248,66 @@
               <el-empty v-else :description="$t('uiAutomation.execution.noError')" />
             </div>
           </el-tab-pane>
+
+          <!-- 自愈诊断 -->
+          <el-tab-pane
+            label="自愈"
+            name="heal"
+            v-if="currentExecution.status === 'failed' || currentExecution.status === 'error'"
+          >
+            <div class="heal-tab" v-loading="detailHealLoading">
+              <div class="heal-tab-actions">
+                <el-button type="primary" size="small" :loading="detailHealLoading" @click="loadDetailHeal(true)">
+                  {{ detailHealDiagnosis ? '重新诊断' : '开始诊断' }}
+                </el-button>
+                <el-button
+                  v-if="detailHealDiagnosis"
+                  size="small"
+                  @click="openHealFromDetail"
+                >
+                  在侧栏打开
+                </el-button>
+              </div>
+              <template v-if="detailHealDiagnosis">
+                <el-descriptions :column="1" border size="small" class="heal-desc">
+                  <el-descriptions-item label="分类">
+                    {{ detailHealDiagnosis.category_display || detailHealDiagnosis.category }}
+                  </el-descriptions-item>
+                  <el-descriptions-item label="置信度">
+                    {{ ((detailHealDiagnosis.confidence || 0) * 100).toFixed(0) }}%
+                  </el-descriptions-item>
+                  <el-descriptions-item label="摘要">
+                    {{ detailHealDiagnosis.summary }}
+                  </el-descriptions-item>
+                </el-descriptions>
+                <h4 class="heal-proposals-title">修复提案</h4>
+                <el-card
+                  v-for="p in detailHealProposals"
+                  :key="p.id"
+                  shadow="never"
+                  class="heal-proposal-card"
+                >
+                  <div class="heal-proposal-head">
+                    <el-tag size="small">{{ p.target_display || p.target }}</el-tag>
+                    <el-tag size="small" type="info">{{ p.status_display || p.status }}</el-tag>
+                    <span>{{ p.title }}</span>
+                  </div>
+                  <pre class="heal-diff">{{ p.diff || JSON.stringify(p.patch_payload, null, 2) }}</pre>
+                  <el-button
+                    v-if="p.target === 'test_asset' && p.status !== 'applied' && p.status !== 'rolled_back'"
+                    type="primary"
+                    size="small"
+                    :loading="detailApplying === p.id"
+                    @click="applyDetailHealProposal(p)"
+                  >
+                    应用测试修复
+                  </el-button>
+                </el-card>
+                <el-empty v-if="!detailHealProposals.length" description="暂无修复提案" />
+              </template>
+              <el-empty v-else-if="!detailHealLoading" description="暂无诊断结果，可点击「开始诊断」" />
+            </div>
+          </el-tab-pane>
         </el-tabs>
       </div>
       <template #footer>
@@ -261,23 +344,157 @@
         <el-button type="primary" @click="handleRerun" :loading="rerunning">{{ $t('uiAutomation.execution.confirmRerun') }}</el-button>
       </template>
     </el-dialog>
+
+    <FailureDiagnosisPanel
+      v-model="showHealPanel"
+      :diagnosis="healDiagnosis"
+      :proposals="healProposals"
+      :loading="healLoading"
+      @refresh="loadHealForCurrent"
+    />
   </div>
 </template>
 
 <script setup>
-import { ref, reactive, onMounted } from 'vue'
+import { ref, reactive, computed, onMounted, watch } from 'vue'
+import { useRoute } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Search, View, WarningFilled, Refresh } from '@element-plus/icons-vue'
 import { useI18n } from 'vue-i18n'
 import {
   getTestCaseExecutions,
+  getTestExecutions,
   getUiProjects,
   deleteTestCaseExecution,
+  deleteTestExecution,
   batchDeleteTestCaseExecutions,
-  runTestCase
+  runTestCase,
+  listFailureDiagnoses,
+  diagnoseTestCaseExecution,
+  diagnoseTestExecution,
+  applyScriptFix
 } from '@/api/ui_automation'
+import FailureDiagnosisPanel from '../ai/FailureDiagnosisPanel.vue'
+import { resolveUiProjectId, saveUiProjectId } from '@/utils/uiAutomationProject'
 
+const route = useRoute()
 const { t } = useI18n()
+
+const showHealPanel = ref(false)
+const healDiagnosis = ref(null)
+const healProposals = ref([])
+const healLoading = ref(false)
+const healExecutionId = ref(null)
+const healExecutionType = ref('testcase')
+
+const detailHealLoading = ref(false)
+const detailHealDiagnosis = ref(null)
+const detailHealProposals = ref([])
+const detailApplying = ref(null)
+
+function healQueryForRow(row) {
+  const isScript = row?.record_type === 'script'
+  return {
+    execution_type: isScript ? 'script' : 'testcase',
+    execution_id: row?.raw_id || row?.id
+  }
+}
+
+async function openHealDiagnosis(row) {
+  const q = healQueryForRow(row)
+  healExecutionId.value = q.execution_id
+  healExecutionType.value = q.execution_type
+  showHealPanel.value = true
+  healLoading.value = true
+  try {
+    const list = await listFailureDiagnoses(q)
+    const rows = list.data?.results || list.data || []
+    if (rows[0]) {
+      healDiagnosis.value = rows[0]
+      healProposals.value = rows[0].proposals || rows[0].fix_proposals || []
+    } else if (q.execution_type === 'script') {
+      const res = await diagnoseTestExecution(q.execution_id, { use_llm: true })
+      healDiagnosis.value = res.data?.diagnosis
+      healProposals.value = res.data?.proposals || []
+    } else {
+      const res = await diagnoseTestCaseExecution(q.execution_id, { use_llm: true })
+      healDiagnosis.value = res.data?.diagnosis
+      healProposals.value = res.data?.proposals || []
+    }
+  } catch (e) {
+    ElMessage.error(e.response?.data?.error || e.message || '诊断失败')
+  } finally {
+    healLoading.value = false
+  }
+}
+
+async function loadHealForCurrent() {
+  if (!healExecutionId.value) return
+  const list = await listFailureDiagnoses({
+    execution_type: healExecutionType.value,
+    execution_id: healExecutionId.value
+  })
+  const rows = list.data?.results || list.data || []
+  if (rows[0]) {
+    healDiagnosis.value = rows[0]
+    healProposals.value = rows[0].proposals || rows[0].fix_proposals || []
+  }
+}
+
+async function loadDetailHeal(forceDiagnose = false) {
+  const row = currentExecution.value
+  if (!row || (row.status !== 'failed' && row.status !== 'error')) return
+  const q = healQueryForRow(row)
+  detailHealLoading.value = true
+  try {
+    if (!forceDiagnose) {
+      const list = await listFailureDiagnoses(q)
+      const rows = list.data?.results || list.data || []
+      if (rows[0]) {
+        detailHealDiagnosis.value = rows[0]
+        detailHealProposals.value = rows[0].proposals || rows[0].fix_proposals || []
+        return
+      }
+    }
+    const res = q.execution_type === 'script'
+      ? await diagnoseTestExecution(q.execution_id, { use_llm: true, force: forceDiagnose })
+      : await diagnoseTestCaseExecution(q.execution_id, { use_llm: true })
+    detailHealDiagnosis.value = res.data?.diagnosis
+    detailHealProposals.value = res.data?.proposals || []
+  } catch (e) {
+    if (forceDiagnose) {
+      ElMessage.error(e.response?.data?.error || e.message || '诊断失败')
+    }
+  } finally {
+    detailHealLoading.value = false
+  }
+}
+
+function openHealFromDetail() {
+  if (!currentExecution.value) return
+  healDiagnosis.value = detailHealDiagnosis.value
+  healProposals.value = detailHealProposals.value
+  const q = healQueryForRow(currentExecution.value)
+  healExecutionId.value = q.execution_id
+  healExecutionType.value = q.execution_type
+  showHealPanel.value = true
+}
+
+async function applyDetailHealProposal(proposal) {
+  if (!detailHealDiagnosis.value?.id) return
+  detailApplying.value = proposal.id
+  try {
+    await applyScriptFix(detailHealDiagnosis.value.id, {
+      proposal_id: proposal.id
+    })
+    ElMessage.success('已应用修复')
+    await loadDetailHeal(false)
+  } catch (e) {
+    ElMessage.error(e.response?.data?.error || e.message || '应用失败')
+  } finally {
+    detailApplying.value = null
+  }
+}
 
 // 项目和执行数据
 const projects = ref([])
@@ -295,9 +512,21 @@ const queryParams = reactive({
   project: undefined,
   search: '',
   status: '',
-  browser: ''
+  browser: '',
+  recordType: ''
 })
 const selectedIds = ref([])
+
+const filteredExecutions = computed(() => executions.value)
+
+const displayTotal = computed(() => Number(total.value) || executions.value.length || 0)
+
+const reverseIndex = (index) => {
+  const n = displayTotal.value
+  const page = Number(pagination.currentPage) || 1
+  const size = Number(pagination.pageSize) || 20
+  return Math.max(1, n - (page - 1) * size - index)
+}
 
 // 详情对话框相关
 const showDetailDialog = ref(false)
@@ -447,26 +676,101 @@ const loadProjects = async () => {
   }
 }
 
-// 加载执行列表
+const SCRIPT_STATUS_MAP = {
+  PENDING: 'pending',
+  RUNNING: 'running',
+  SUCCESS: 'passed',
+  FAILED: 'failed',
+  ABORTED: 'error'
+}
+
+const mapScriptExecutionRow = (execution) => {
+  const status = SCRIPT_STATUS_MAP[execution.status]
+    || String(execution.status || '').toLowerCase()
+  const browserRaw = execution.browser || execution.environment || 'chrome'
+  const browser = String(browserRaw).toLowerCase().replace(/^chrome$/, 'chrome')
+  const name = execution.test_script?.name
+    || (typeof execution.test_suite_name === 'string' ? execution.test_suite_name.replace(/^\[脚本\]\s*/, '') : '')
+    || `脚本 #${execution.test_script?.id || execution.id}`
+
+  return {
+    id: `script-${execution.id}`,
+    raw_id: execution.id,
+    record_type: 'script',
+    test_case_name: name,
+    test_suite: null,
+    status,
+    engine: execution.engine || execution.test_script?.framework || 'playwright',
+    browser,
+    headless: execution.headless,
+    execution_time: execution.duration,
+    created_by_name: execution.executed_by_name,
+    started_at: execution.started_at,
+    finished_at: execution.finished_at,
+    created_at: execution.created_at,
+    error_message: execution.error_message,
+    execution_logs: (execution.result_data && execution.result_data.logs) || execution.error_message || '',
+    screenshots: []
+  }
+}
+
+// 加载执行列表（用例执行 + 脚本执行）
 const loadExecutions = async () => {
   loading.value = true
   try {
     const params = {
       page: pagination.currentPage,
       page_size: pagination.pageSize,
-      ...queryParams
+      search: queryParams.search || undefined,
+      browser: queryParams.browser || undefined
     }
 
-    // 添加项目筛选
     if (projectId.value) {
       params.project = projectId.value
-    } else {
-      params.project = undefined // Ensure project is undefined if not selected
     }
 
-    const response = await getTestCaseExecutions(params)
-    executions.value = response.data.results || response.data
-    total.value = response.data.count || executions.value.length
+    const caseStatus = queryParams.status || undefined
+    const scriptStatusMap = {
+      pending: 'PENDING',
+      running: 'RUNNING',
+      passed: 'SUCCESS',
+      failed: 'FAILED',
+      error: 'FAILED'
+    }
+    const scriptStatus = caseStatus ? scriptStatusMap[caseStatus] : undefined
+    const recordType = queryParams.recordType
+    const loadCase = recordType !== 'script'
+    const loadScript = recordType !== 'case'
+
+    const emptyRes = { data: { results: [], count: 0 } }
+    const [caseRes, scriptRes] = await Promise.all([
+      loadCase
+        ? getTestCaseExecutions({ ...params, status: caseStatus })
+        : Promise.resolve(emptyRes),
+      loadScript
+        ? getTestExecutions({
+            ...params,
+            status: scriptStatus,
+            has_script: 1
+          }).catch(() => emptyRes)
+        : Promise.resolve(emptyRes)
+    ])
+
+    const caseRows = (caseRes.data.results || caseRes.data || []).map((row) => ({
+      ...row,
+      record_type: 'case',
+      raw_id: row.id
+    }))
+
+    const scriptRows = (scriptRes.data.results || scriptRes.data || []).map(mapScriptExecutionRow)
+
+    const merged = [...caseRows, ...scriptRows].sort(
+      (a, b) => new Date(b.created_at || b.started_at || 0) - new Date(a.created_at || a.started_at || 0)
+    )
+    executions.value = merged
+    const caseCount = caseRes.data.count ?? caseRows.length
+    const scriptCount = scriptRes.data.count ?? scriptRows.length
+    total.value = caseCount + scriptCount
   } catch (error) {
     ElMessage.error(t('uiAutomation.execution.messages.loadFailed'))
     console.error('获取执行列表失败:', error)
@@ -475,11 +779,13 @@ const loadExecutions = async () => {
   }
 }
 
-// 项目变更处理
+// 项目变更处理（仅用户切换时写入记忆；初始化赋值不触发 el-select change）
 const onProjectChange = () => {
+  saveUiProjectId(projectId.value)
   queryParams.search = ''
   queryParams.status = ''
   queryParams.browser = ''
+  queryParams.recordType = ''
   pagination.currentPage = 1
   loadExecutions()
 }
@@ -495,6 +801,7 @@ const resetQuery = () => {
   queryParams.search = ''
   queryParams.status = ''
   queryParams.browser = ''
+  queryParams.recordType = ''
   pagination.currentPage = 1
   loadExecutions()
 }
@@ -511,9 +818,11 @@ const handleCurrentChange = (val) => {
   loadExecutions()
 }
 
-// 表格多选
+// 表格多选（脚本行用 raw_id；批量删除仅支持用例执行）
 const handleSelectionChange = (selection) => {
-  selectedIds.value = selection.map(item => item.id)
+  selectedIds.value = selection
+    .filter((item) => item.record_type !== 'script')
+    .map((item) => item.raw_id || item.id)
 }
 
 // 删除单个执行记录
@@ -524,7 +833,11 @@ const handleDelete = (row) => {
     type: 'warning'
   }).then(async () => {
     try {
-      await deleteTestCaseExecution(row.id)
+      if (row.record_type === 'script') {
+        await deleteTestExecution(row.raw_id)
+      } else {
+        await deleteTestCaseExecution(row.raw_id || row.id)
+      }
       ElMessage.success(t('uiAutomation.execution.messages.deleteSuccess'))
       loadExecutions()
     } catch (error) {
@@ -559,8 +872,19 @@ const handleBatchDelete = () => {
 const viewExecutionDetail = (execution) => {
   currentExecution.value = execution
   activeTab.value = 'logs'
+  detailHealDiagnosis.value = null
+  detailHealProposals.value = []
   showDetailDialog.value = true
+  if (execution.status === 'failed' || execution.status === 'error') {
+    loadDetailHeal(false)
+  }
 }
+
+watch(activeTab, (name) => {
+  if (name === 'heal' && currentExecution.value && !detailHealDiagnosis.value) {
+    loadDetailHeal(false)
+  }
+})
 
 // 显示重跑对话框
 const showRerunDialog = (execution) => {
@@ -616,50 +940,122 @@ const handleRerun = async () => {
 // 组件挂载时加载数据
 onMounted(async () => {
   await loadProjects()
-  if (projects.value.length > 0) {
-    projectId.value = projects.value[0].id
+  const qProject = Number(route.query.project)
+  if (qProject && projects.value.some((p) => Number(p.id) === qProject)) {
+    projectId.value = qProject
+  } else {
+    projectId.value = resolveUiProjectId(projects.value, { fallbackToFirst: false })
   }
   await loadExecutions()
 })
 </script>
 
 <style scoped lang="scss">
-.page-container {
-  padding: 20px;
+.execution-page {
   height: 100%;
-  overflow-y: auto;
-  background: #f5f5f5;
+  display: flex;
+  flex-direction: column;
+  background: #f3f5f8;
+  padding: 16px 20px 20px;
+  box-sizing: border-box;
 }
 
 .page-header {
   display: flex;
   justify-content: space-between;
+  align-items: flex-start;
+  margin-bottom: 16px;
+}
+
+.header-actions {
+  display: flex;
   align-items: center;
-  margin-bottom: 20px;
-  background: white;
-  padding: 20px;
-  border-radius: 4px;
+  gap: 12px;
 }
 
 .page-title {
   margin: 0;
-  font-size: 24px;
-  color: #303133;
+  font-size: 22px;
+  font-weight: 650;
+  color: #1f2a37;
+  letter-spacing: -0.02em;
+}
+
+.page-subtitle {
+  margin: 6px 0 0;
+  font-size: 13px;
+  color: #6b7280;
 }
 
 .card-container {
-  background-color: #fff;
-  border-radius: 8px;
-  padding: 20px;
-  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+  flex: 1;
+  min-height: 0;
+  background: #fff;
+  border: 1px solid #e5e9f0;
+  border-radius: 12px;
+  padding: 16px 18px 12px;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 1px 2px rgba(16, 24, 40, 0.04);
 }
 
 .filter-bar {
-  margin-bottom: 20px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 14px;
+  flex-wrap: wrap;
+}
+
+.filter-spacer {
+  flex: 1;
+}
+
+.result-hint {
+  font-size: 13px;
+  color: #6b7280;
+}
+
+.data-table {
+  flex: 1;
+}
+
+.row-index {
+  font-variant-numeric: tabular-nums;
+  color: #6b7280;
+  font-weight: 500;
+}
+
+.name-link {
+  border: none;
+  background: none;
+  padding: 0;
+  color: #2563eb;
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.name-link:hover {
+  text-decoration: underline;
+}
+
+.mode-hint {
+  margin-left: 4px;
+  font-size: 12px;
+  color: #9ca3af;
+}
+
+.table-actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  flex-wrap: wrap;
+  justify-content: center;
 }
 
 .pagination-container {
-  margin-top: 20px;
+  margin-top: 14px;
   display: flex;
   justify-content: flex-end;
 }
@@ -852,5 +1248,48 @@ onMounted(async () => {
     padding: 10px 15px;
     font-weight: 600;
   }
+}
+
+.heal-tab {
+  min-height: 160px;
+}
+
+.heal-tab-actions {
+  margin-bottom: 12px;
+  display: flex;
+  gap: 8px;
+}
+
+.heal-desc {
+  margin-bottom: 12px;
+}
+
+.heal-proposals-title {
+  margin: 12px 0 8px;
+  font-size: 14px;
+}
+
+.heal-proposal-card {
+  margin-bottom: 10px;
+}
+
+.heal-proposal-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+  flex-wrap: wrap;
+}
+
+.heal-diff {
+  margin: 0 0 10px;
+  padding: 10px;
+  background: #f5f7fa;
+  border-radius: 4px;
+  font-size: 12px;
+  max-height: 180px;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
 }
 </style>

@@ -531,15 +531,16 @@ class SeleniumTestEngine:
             primary_strategy = element_data.get('locator_strategy', 'css')
             primary_value = element_data.get('locator_value', '')
             if primary_value:
-                locator_candidates.append({'strategy': primary_strategy, 'value': primary_value})
+                locator_candidates.append({'strategy': primary_strategy, 'value': primary_value, 'is_primary': True})
             for backup in element_data.get('backup_locators') or []:
                 if isinstance(backup, dict) and backup.get('value'):
                     locator_candidates.append({
                         'strategy': backup.get('strategy') or 'css',
                         'value': backup['value'],
+                        'is_primary': False,
                     })
             if not locator_candidates:
-                locator_candidates.append({'strategy': primary_strategy, 'value': primary_value})
+                locator_candidates.append({'strategy': primary_strategy, 'value': primary_value, 'is_primary': True})
 
             element_name = element_data.get('name', '未知元素')
 
@@ -560,6 +561,7 @@ class SeleniumTestEngine:
             by_type = by_value = None
             locator_strategy = primary_strategy
             locator_value = primary_value
+            self.last_locator_hit = None
             for candidate in locator_candidates:
                 locator_strategy = candidate['strategy']
                 locator_value = candidate['value']
@@ -569,12 +571,22 @@ class SeleniumTestEngine:
                     WebDriverWait(self.driver, min(timeout_seconds, 3)).until(
                         EC.presence_of_element_located((by_type, by_value))
                     )
+                    self.last_locator_hit = {
+                        'strategy': locator_strategy,
+                        'value': locator_value,
+                        'used_backup': not bool(candidate.get('is_primary', True)),
+                        'element_id': element_data.get('id'),
+                    }
                     break
                 except Exception as exc:
                     last_err = exc
                     by_type = by_value = None
                     continue
             if by_type is None:
+                try:
+                    self.last_dom_snippet = (self.driver.find_element('tag name', 'body').text or '')[:2000]
+                except Exception:
+                    self.last_dom_snippet = ''
                 raise last_err or Exception(f'无法定位元素: {element_name}')
 
             # 根据操作类型选择合适的等待条件

@@ -33,13 +33,13 @@ class UiProjectSerializer(serializers.ModelSerializer):
 class UiProjectCreateSerializer(serializers.ModelSerializer):
     class Meta:
         model = UiProject
-        fields = ('name', 'description', 'status', 'base_url', 'start_date', 'end_date', 'owner', 'members')
+        fields = ('name', 'description', 'status', 'base_url', 'start_date', 'end_date', 'owner', 'members', 'heal_settings')
 
 
 class UiProjectUpdateSerializer(serializers.ModelSerializer):
     class Meta:
         model = UiProject
-        fields = ('name', 'description', 'status', 'base_url', 'start_date', 'end_date', 'members')
+        fields = ('name', 'description', 'status', 'base_url', 'start_date', 'end_date', 'members', 'heal_settings')
 
 
 class LocatorStrategySerializer(serializers.ModelSerializer):
@@ -124,14 +124,53 @@ class ElementSerializer(serializers.ModelSerializer):
         return super().update(instance, validated_data)
 
 
+class TestScriptListSerializer(serializers.ModelSerializer):
+    """列表/嵌套用轻量脚本序列化，避免带上整段 content 与实时 sync 计算。"""
+    source_test_case_id = serializers.IntegerField(read_only=True, allow_null=True)
+
+    class Meta:
+        model = TestScript
+        fields = (
+            'id', 'name', 'project', 'script_type', 'language', 'framework',
+            'source_test_case_id', 'created_at', 'updated_at',
+        )
+
+
 class TestScriptSerializer(serializers.ModelSerializer):
     project = UiProjectSerializer(read_only=True)
     project_id = serializers.IntegerField(write_only=True)
+    source_test_case_id = serializers.IntegerField(read_only=True, allow_null=True)
+    source_test_case_name = serializers.SerializerMethodField()
+    sync_status = serializers.SerializerMethodField()
+    sync_label = serializers.SerializerMethodField()
+    inconsistent = serializers.SerializerMethodField()
 
     class Meta:
         model = TestScript
         fields = '__all__'
-        read_only_fields = ('created_at', 'updated_at')
+        read_only_fields = ('created_at', 'updated_at', 'synced_content_hash')
+
+    def _sync(self, obj):
+        cache = getattr(self, '_sync_cache', None)
+        if cache is None:
+            self._sync_cache = {}
+            cache = self._sync_cache
+        if obj.id not in cache:
+            from .services.codegen import get_script_sync_status
+            cache[obj.id] = get_script_sync_status(obj)
+        return cache[obj.id]
+
+    def get_source_test_case_name(self, obj):
+        return obj.source_test_case.name if obj.source_test_case_id else None
+
+    def get_sync_status(self, obj):
+        return self._sync(obj).get('status')
+
+    def get_sync_label(self, obj):
+        return self._sync(obj).get('label')
+
+    def get_inconsistent(self, obj):
+        return bool(self._sync(obj).get('inconsistent'))
 
 
 class TestScriptCreateSerializer(serializers.ModelSerializer):
@@ -143,8 +182,7 @@ class TestScriptCreateSerializer(serializers.ModelSerializer):
 class TestScriptUpdateSerializer(serializers.ModelSerializer):
     class Meta:
         model = TestScript
-        fields = ('name', 'description', 'script_type', 'content')
-
+        fields = ('name', 'description', 'script_type', 'content', 'language', 'framework')
 
 class TestSuiteScriptSerializer(serializers.ModelSerializer):
     test_script = TestScriptSerializer(read_only=True)
@@ -224,7 +262,7 @@ class TestSuiteWithScriptsSerializer(serializers.ModelSerializer):
 class TestExecutionSerializer(serializers.ModelSerializer):
     project = UiProjectSerializer(read_only=True)
     test_suite = TestSuiteSerializer(read_only=True)
-    test_script = TestScriptSerializer(read_only=True)
+    test_script = TestScriptListSerializer(read_only=True)
     executed_by = UserSerializer(read_only=True)
     project_id = serializers.IntegerField(write_only=True)
     test_suite_id = serializers.IntegerField(write_only=True, required=False, allow_null=True)
@@ -245,9 +283,12 @@ class TestExecutionSerializer(serializers.ModelSerializer):
         )
 
     def get_test_suite_name(self, obj):
-        """获取测试套件名称"""
-        return obj.test_suite.name if obj.test_suite else '-'
-    
+        """获取测试套件名称；脚本执行时显示脚本名"""
+        if obj.test_suite_id:
+            return obj.test_suite.name
+        if obj.test_script_id:
+            return f'[脚本] {obj.test_script.name}'
+        return '-'    
     def get_executed_by_name(self, obj):
         """获取执行人姓名"""
         return obj.executed_by.username if obj.executed_by else '-'
@@ -543,14 +584,53 @@ class TestCaseSerializer(serializers.ModelSerializer):
     steps = TestCaseStepSerializer(many=True, read_only=True)
     created_by_name = serializers.CharField(source='created_by.username', read_only=True)
     project_name = serializers.CharField(source='project.name', read_only=True)
+    linked_script_id = serializers.SerializerMethodField()
+    linked_script_name = serializers.SerializerMethodField()
+    script_sync_status = serializers.SerializerMethodField()
+    script_inconsistent = serializers.SerializerMethodField()
 
     class Meta:
         model = TestCase
         fields = [
             'id', 'name', 'description', 'project', 'project_name', 'status', 'priority',
-            'source', 'created_by', 'created_by_name', 'created_at', 'updated_at', 'steps'
+            'source', 'created_by', 'created_by_name', 'created_at', 'updated_at', 'steps',
+            'linked_script_id', 'linked_script_name', 'script_sync_status', 'script_inconsistent',
         ]
         read_only_fields = ['created_by']
+
+    def get_linked_script_id(self, obj):
+        try:
+            script = obj.linked_script
+        except Exception:
+            return None
+        return script.id if script else None
+
+    def get_linked_script_name(self, obj):
+        try:
+            script = obj.linked_script
+        except Exception:
+            return None
+        return script.name if script else None
+
+    def get_script_sync_status(self, obj):
+        try:
+            script = obj.linked_script
+        except Exception:
+            return None
+        if not script:
+            return None
+        from .services.codegen import get_script_sync_status
+        return get_script_sync_status(script).get('status')
+
+    def get_script_inconsistent(self, obj):
+        try:
+            script = obj.linked_script
+        except Exception:
+            return False
+        if not script:
+            return False
+        from .services.codegen import get_script_sync_status
+        return bool(get_script_sync_status(script).get('inconsistent'))
 
     def create(self, validated_data):
         validated_data['created_by'] = self.context['request'].user
@@ -874,6 +954,7 @@ class RecordingSessionSerializer(serializers.ModelSerializer):
 class AutoFixProposalSerializer(serializers.ModelSerializer):
     target_display = serializers.CharField(source='get_target_display', read_only=True)
     status_display = serializers.CharField(source='get_status_display', read_only=True)
+    verify_status_display = serializers.CharField(source='get_verify_status_display', read_only=True)
 
     class Meta:
         model = AutoFixProposal

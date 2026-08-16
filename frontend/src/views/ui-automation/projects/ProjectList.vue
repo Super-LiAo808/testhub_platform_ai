@@ -169,6 +169,27 @@
         <el-form-item :label="$t('uiAutomation.project.endDate')" prop="end_date">
           <el-date-picker v-model="editForm.end_date" type="date" :placeholder="$t('uiAutomation.project.selectDate')" />
         </el-form-item>
+        <el-divider content-position="left">自愈策略</el-divider>
+        <el-form-item label="自动诊断">
+          <el-switch v-model="editForm.heal_settings.auto_diagnose" />
+        </el-form-item>
+        <el-form-item label="模式">
+          <el-select v-model="editForm.heal_settings.mode" style="width: 100%">
+            <el-option label="仅诊断" value="diagnose_only" />
+            <el-option label="人工应用（默认）" value="manual_apply" />
+            <el-option label="低风险自动应用" value="auto_low_risk" />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="应用后重跑验证">
+          <el-switch v-model="editForm.heal_settings.verify_rerun" />
+        </el-form-item>
+        <el-form-item label="备用定位自动升格">
+          <el-switch v-model="editForm.heal_settings.auto_promote_backup" />
+        </el-form-item>
+        <el-form-item label="结合元素库自动选点">
+          <el-switch v-model="editForm.heal_settings.auto_pick_from_element" />
+          <div class="form-tip">诊断时根据元素主/备定位自动判定修复方案；低风险模式下可自动升格备用定位</div>
+        </el-form-item>
       </el-form>
       <template #footer>
         <span class="dialog-footer">
@@ -258,7 +279,16 @@ const editForm = reactive({
   status: 'IN_PROGRESS',
   base_url: '',
   start_date: null,
-  end_date: null
+  end_date: null,
+  heal_settings: {
+    auto_diagnose: true,
+    mode: 'manual_apply',
+    verify_rerun: true,
+    auto_promote_backup: false,
+    auto_pick_from_element: true,
+    auto_apply_types: ['increase_wait', 'add_backup_locator', 'promote_backup'],
+    use_llm_on_manual_diagnose: true
+  }
 })
 
 // 表单验证规则
@@ -402,7 +432,17 @@ const editProject = (project) => {
     status: project.status,
     base_url: project.base_url,
     start_date: project.start_date ? new Date(project.start_date) : null,
-    end_date: project.end_date ? new Date(project.end_date) : null
+    end_date: project.end_date ? new Date(project.end_date) : null,
+    heal_settings: {
+      auto_diagnose: true,
+      mode: 'manual_apply',
+      verify_rerun: true,
+      auto_promote_backup: false,
+      auto_pick_from_element: true,
+      auto_apply_types: ['increase_wait', 'add_backup_locator', 'promote_backup'],
+      use_llm_on_manual_diagnose: true,
+      ...(project.heal_settings || {})
+    }
   })
   showEditDialog.value = true
 }
@@ -555,5 +595,12 @@ onMounted(() => {
   margin-top: 20px;
   display: flex;
   justify-content: flex-end;
+}
+
+.form-tip {
+  margin-top: 4px;
+  font-size: 12px;
+  color: #909399;
+  line-height: 1.4;
 }
 </style>

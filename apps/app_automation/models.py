@@ -686,12 +686,18 @@ class AppTestExecution(models.Model):
     @property
     def case_name(self):
         """用例名称"""
-        return self.test_case.name if self.test_case else ''
+        if self.test_case_id and self.test_case:
+            return self.test_case.name
+        if self.test_suite_id and self.test_suite:
+            return f'[套件] {self.test_suite.name}'
+        return ''
     
     @property
     def device_name(self):
         """设备名称"""
-        return self.device.device_id if self.device else ''
+        if not self.device_id or not self.device:
+            return ''
+        return self.device.name or self.device.device_id or ''
     
     @property
     def user_name(self):

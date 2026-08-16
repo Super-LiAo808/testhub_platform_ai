@@ -53,10 +53,22 @@ export function updateAppConfig(data) {
 /**
  * 获取 Dashboard 统计数据
  */
-export function getDashboardStatistics() {
+export function getDashboardStatistics(params = {}) {
   return request({
     url: '/app-automation/dashboard/statistics/',
-    method: 'get'
+    method: 'get',
+    params
+  })
+}
+
+/**
+ * 获取最近执行记录
+ */
+export function getDashboardRecentExecutions(params = {}) {
+  return request({
+    url: '/app-automation/dashboard/recent-executions/',
+    method: 'get',
+    params
   })
 }
 
@@ -408,6 +420,14 @@ export function stopExecution(id) {
   return request({
     url: `/app-automation/executions/${id}/stop/`,
     method: 'post'
+  })
+}
+
+export function diagnoseAppExecution(id, data = {}) {
+  return request({
+    url: `/app-automation/executions/${id}/diagnose/`,
+    method: 'post',
+    data
   })
 }
 

@@ -8,6 +8,7 @@
             <el-tag v-if="session" :type="statusType">{{ statusText }}</el-tag>
             <el-tag v-if="browserReady" type="success">浏览器已就绪</el-tag>
             <el-tag v-if="generatedCaseId" type="success">用例 #{{ generatedCaseId }}</el-tag>
+            <el-tag v-if="generatedScriptId" type="success">脚本 #{{ generatedScriptId }}</el-tag>
           </div>
         </div>
       </template>
@@ -41,7 +42,7 @@
         type="info"
         :closable="false"
         title="使用说明"
-        description="1) 选择项目并开始录制，等待本机弹出 Chromium；2) 在浏览器中完成操作；3) 点击「停止并生成用例」，系统会自动把操作轨迹编译为可回归 TestCase。"
+        description="1) 选择项目并开始录制，等待本机弹出 Chromium；2) 在浏览器中完成操作；3) 点击「停止并生成用例」，系统会自动生成可回归 TestCase，并同步创建一一对应的配套脚本。"
         style="margin-bottom: 16px"
       />
 
@@ -97,6 +98,7 @@ const stopping = ref(false)
 const compiling = ref(false)
 const browserReady = ref(false)
 const generatedCaseId = ref(null)
+const generatedScriptId = ref(null)
 const lastMessage = ref('')
 const lastMessageType = ref('info')
 let pollTimer = null
@@ -125,6 +127,7 @@ onUnmounted(() => {
 async function startRecording() {
   starting.value = true
   generatedCaseId.value = null
+  generatedScriptId.value = null
   lastMessage.value = ''
   try {
     const res = await createRecordingSession({
@@ -185,6 +188,10 @@ async function stopRecording() {
     actionTraceId.value = payload.action_trace_id || session.value.action_trace_id || session.value.action_trace
     if (payload.test_case?.id) {
       generatedCaseId.value = payload.test_case.id
+      generatedScriptId.value = payload.script_id
+        || payload.test_case.linked_script_id
+        || payload.preview?.linked_script_id
+        || null
       lastMessageType.value = 'success'
     } else if (payload.compile_error) {
       lastMessageType.value = 'warning'
@@ -198,7 +205,8 @@ async function stopRecording() {
       pollTimer = null
     }
     if (generatedCaseId.value) {
-      ElMessage.success(`已生成回归用例 #${generatedCaseId.value}`)
+      const scriptHint = generatedScriptId.value ? `，配套脚本 #${generatedScriptId.value}` : ''
+      ElMessage.success(`已生成回归用例 #${generatedCaseId.value}${scriptHint}`)
     } else {
       ElMessage.warning(payload.compile_error || payload.message || '已停止，但未生成用例')
     }
@@ -223,7 +231,12 @@ async function compileTrace() {
     const id = res.data?.test_case?.id
     if (id) {
       generatedCaseId.value = id
-      ElMessage.success(`已生成回归用例 #${id}`)
+      generatedScriptId.value = res.data?.script?.id
+        || res.data?.test_case?.linked_script_id
+        || res.data?.preview?.linked_script_id
+        || null
+      const scriptHint = generatedScriptId.value ? `，配套脚本 #${generatedScriptId.value}` : ''
+      ElMessage.success(`已生成回归用例 #${id}${scriptHint}`)
     } else {
       ElMessage.success('编译完成')
     }

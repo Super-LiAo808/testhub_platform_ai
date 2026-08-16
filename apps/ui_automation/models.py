@@ -22,6 +22,7 @@ class UiProject(models.Model):
     end_date = models.DateField(null=True, blank=True, verbose_name='结束日期')
     owner = models.ForeignKey(User, on_delete=models.CASCADE, related_name='owned_ui_projects', verbose_name='负责人')
     members = models.ManyToManyField(User, blank=True, related_name='ui_projects', verbose_name='团队成员')
+    heal_settings = models.JSONField(default=dict, blank=True, verbose_name='自愈策略')
     created_at = models.DateTimeField(auto_now_add=True, verbose_name='创建时间')
     updated_at = models.DateTimeField(auto_now=True, verbose_name='更新时间')
 
@@ -33,6 +34,10 @@ class UiProject(models.Model):
 
     def __str__(self):
         return self.name
+
+    def get_heal_settings(self):
+        from apps.ui_automation.services.heal_settings import merge_heal_settings
+        return merge_heal_settings(self.heal_settings)
 
 
 class LocatorStrategy(models.Model):
@@ -265,6 +270,22 @@ class TestScript(models.Model):
     content = models.TextField(verbose_name='脚本内容')  # 可以是代码或JSON格式的低代码配置
     language = models.CharField(max_length=20, choices=LANGUAGE_CHOICES, verbose_name='脚本语言', default='python', blank=True)
     framework = models.CharField(max_length=20, choices=FRAMEWORK_CHOICES, verbose_name='执行框架', default='playwright', blank=True)
+    # 与用例关联（可空）：脚本为独立产物；删用例时解除绑定而非删脚本
+    source_test_case = models.OneToOneField(
+        'TestCase',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='linked_script',
+        verbose_name='来源用例',
+    )
+    # 最近一次「从用例同步」时的内容哈希，用于区分用例变更 / 脚本改动 / 双方分叉
+    synced_content_hash = models.CharField(
+        max_length=64,
+        blank=True,
+        default='',
+        verbose_name='同步快照哈希',
+    )
     created_at = models.DateTimeField(auto_now_add=True, verbose_name='创建时间')
     updated_at = models.DateTimeField(auto_now=True, verbose_name='更新时间')
 
@@ -1222,6 +1243,8 @@ class FailureDiagnosis(models.Model):
     EXECUTION_TYPE_CHOICES = [
         ('ai', 'AI执行'),
         ('testcase', '用例执行'),
+        ('script', '独立脚本执行'),
+        ('app', 'APP执行'),
     ]
     CATEGORY_CHOICES = [
         ('locator_break', '定位失效'),
@@ -1278,6 +1301,13 @@ class AutoFixProposal(models.Model):
         ('approved', '已批准'),
         ('rejected', '已拒绝'),
         ('applied', '已应用'),
+        ('rolled_back', '已回滚'),
+    ]
+    VERIFY_STATUS_CHOICES = [
+        ('pending', '待验证'),
+        ('passed', '验证通过'),
+        ('failed', '验证失败'),
+        ('skipped', '已跳过'),
     ]
 
     diagnosis = models.ForeignKey(
@@ -1290,6 +1320,13 @@ class AutoFixProposal(models.Model):
     patch_payload = models.JSONField(default=dict, blank=True, verbose_name='结构化补丁')
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='proposed', verbose_name='状态')
     defect_id = models.IntegerField(null=True, blank=True, verbose_name='关联缺陷ID')
+    verify_status = models.CharField(
+        max_length=20, choices=VERIFY_STATUS_CHOICES, default='pending', blank=True, verbose_name='验证状态'
+    )
+    verify_execution_type = models.CharField(max_length=20, blank=True, default='', verbose_name='验证执行类型')
+    verify_execution_id = models.IntegerField(null=True, blank=True, verbose_name='验证执行ID')
+    before_snapshot = models.JSONField(default=dict, blank=True, verbose_name='应用前快照')
+    applied_at = models.DateTimeField(null=True, blank=True, verbose_name='应用时间')
     created_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True, related_name='created_fix_proposals', verbose_name='创建人')
     reviewed_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True, related_name='reviewed_fix_proposals', verbose_name='审批人')
     reviewed_at = models.DateTimeField(null=True, blank=True, verbose_name='审批时间')

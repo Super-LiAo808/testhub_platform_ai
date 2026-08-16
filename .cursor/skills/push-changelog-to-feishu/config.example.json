@@ -3,5 +3,8 @@
   "parent_node": "NNPOwCrEVidgl2kBeLbc4qfUnCg",
   "parent_wiki_url": "https://my.feishu.cn/wiki/NNPOwCrEVidgl2kBeLbc4qfUnCg",
   "mcp_json_path": "",
-  "title_prefix": "TestHub 迭代说明"
+  "title_prefix": "TestHub 迭代说明",
+  "analysis_dir": "docs/analysis",
+  "changelog_dir": "docs/changelogs",
+  "notes": "分析类文档与迭代说明均上传到同一 Wiki 父节点；token 用 mcp.json 的 -u（UAT）"
 }

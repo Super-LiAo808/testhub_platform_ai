@@ -1,9 +1,18 @@
 <template>
   <div class="test-case-manager">
     <div class="page-header">
-      <h1 class="page-title">{{ t('uiAutomation.testCase.title') }}</h1>
+      <div class="header-left">
+        <h1 class="page-title">{{ t('uiAutomation.testCase.title') }}</h1>
+        <p class="page-subtitle">录制回放、步骤编排与一键执行</p>
+      </div>
       <div class="header-actions">
-        <el-select v-model="projectId" :placeholder="t('uiAutomation.project.selectProject')" style="width: 200px; margin-right: 15px" @change="onProjectChange">
+        <el-select
+          v-model="projectId"
+          :placeholder="t('uiAutomation.project.selectProject')"
+          filterable
+          style="width: 220px"
+          @change="onProjectSelectChange"
+        >
           <el-option v-for="project in projects" :key="project.id" :label="project.name" :value="project.id" />
         </el-select>
         <el-button type="primary" @click="showCreateDialog = true">
@@ -17,21 +26,37 @@
       <!-- 左侧：测试用例列表 -->
       <div class="left-panel">
         <div class="panel-header">
-          <h3>{{ t('uiAutomation.testCase.testCaseList') }}</h3>
-          <el-input
-            v-model="searchKeyword"
-            :placeholder="t('uiAutomation.testCase.searchPlaceholder')"
-            clearable
-            size="small"
-            style="width: 200px"
-          >
-            <template #prefix>
-              <el-icon><Search /></el-icon>
-            </template>
-          </el-input>
+          <div class="panel-title-row">
+            <h3>{{ t('uiAutomation.testCase.testCaseList') }}</h3>
+            <span class="case-count">{{ filteredTestCases.length }}</span>
+          </div>
+          <div class="panel-header-actions">
+            <el-button
+              v-if="selectedCaseIds.length"
+              size="small"
+              type="danger"
+              plain
+              @click="batchDeleteTestCases"
+            >
+              {{ t('uiAutomation.common.delete') }} ({{ selectedCaseIds.length }})
+            </el-button>
+            <el-input
+              v-model="searchKeyword"
+              :placeholder="t('uiAutomation.testCase.searchPlaceholder')"
+              clearable
+              size="small"
+            >
+              <template #prefix>
+                <el-icon><Search /></el-icon>
+              </template>
+            </el-input>
+          </div>
         </div>
 
         <div class="test-case-list">
+          <div v-if="!filteredTestCases.length" class="empty-cases">
+            <el-empty description="暂无用例" :image-size="72" />
+          </div>
           <div
             v-for="testCase in filteredTestCases"
             :key="testCase.id"
@@ -40,28 +65,44 @@
             @click="selectTestCase(testCase)"
           >
             <div class="case-header">
+              <div class="case-select" @click.stop>
+                <el-checkbox
+                  :model-value="selectedCaseIds.includes(testCase.id)"
+                  @change="(val) => toggleCaseSelect(testCase.id, val)"
+                />
+              </div>
               <div class="case-info">
                 <h4 class="case-name">{{ testCase.name }}</h4>
                 <p class="case-description">{{ testCase.description || t('uiAutomation.testCase.noDescription') }}</p>
               </div>
-              <div class="case-actions">
-                <el-button size="small" text @click.stop="runTestCase(testCase)">
-                  <el-icon><CaretRight /></el-icon>
+              <el-dropdown trigger="click" @command="(cmd) => onCaseCommand(cmd, testCase)" @click.stop>
+                <el-button size="small" text class="more-btn" @click.stop>
+                  <el-icon><MoreFilled /></el-icon>
                 </el-button>
-                <el-button size="small" text @click.stop="editTestCase(testCase)">
-                  <el-icon><Edit /></el-icon>
-                </el-button>
-                <el-button size="small" text @click.stop="copyTestCase(testCase)">
-                  <el-icon><CopyDocument /></el-icon>
-                </el-button>
-                <el-button size="small" text type="danger" @click.stop="deleteTestCase(testCase)">
-                  <el-icon><Delete /></el-icon>
-                </el-button>
-              </div>
+                <template #dropdown>
+                  <el-dropdown-menu>
+                    <el-dropdown-item command="run">运行</el-dropdown-item>
+                    <el-dropdown-item command="edit">编辑信息</el-dropdown-item>
+                    <el-dropdown-item command="copy">复制</el-dropdown-item>
+                    <el-dropdown-item command="delete" divided>
+                      <span style="color:#dc2626">删除</span>
+                    </el-dropdown-item>
+                  </el-dropdown-menu>
+                </template>
+              </el-dropdown>
             </div>
             <div class="case-meta">
-              <!-- 移除状态显示 -->
-              <span class="step-count">{{ testCase.steps?.length || 0 }} {{ t('uiAutomation.testCase.stepsCount') }}</span>
+              <span class="meta-chip">{{ testCase.steps?.length || 0 }} 步</span>
+              <span v-if="testCase.linked_script_id" class="meta-chip linked">
+                脚本 #{{ testCase.linked_script_id }}
+                <el-tag
+                  v-if="testCase.script_inconsistent"
+                  size="small"
+                  type="warning"
+                  effect="plain"
+                  style="margin-left: 4px"
+                >不一致</el-tag>
+              </span>
               <span class="update-time">{{ formatTime(testCase.updated_at) }}</span>
             </div>
           </div>
@@ -72,48 +113,59 @@
       <div class="right-panel">
         <div v-if="selectedTestCase" class="test-case-detail">
           <div class="detail-header">
-            <h3>{{ selectedTestCase.name }}</h3>
+            <div class="detail-title-block">
+              <h3>{{ selectedTestCase.name }}</h3>
+              <p v-if="selectedTestCase.description" class="detail-desc">{{ selectedTestCase.description }}</p>
+            </div>
             <div class="detail-actions">
-              <el-button size="small" @click="addStep">
-                <el-icon><Plus /></el-icon>
-                {{ t('uiAutomation.testCase.addStep') }}
-              </el-button>
-              <el-button size="small" type="primary" @click="saveTestCase">
-                <el-icon><Check /></el-icon>
-                {{ t('uiAutomation.testCase.saveTestCase') }}
-              </el-button>
-              <el-select v-model="selectedEngine" :placeholder="t('uiAutomation.testCase.selectEngine')" size="small" style="width: 130px; margin-right: 10px">
-                <el-option label="Playwright" value="playwright" />
-                <el-option label="Selenium" value="selenium" />
-              </el-select>
-              <el-select v-model="selectedBrowser" :placeholder="t('uiAutomation.testCase.selectBrowser')" size="small" style="width: 120px; margin-right: 10px">
-                <el-option label="Chrome" value="chrome" />
-                <el-option label="Firefox" value="firefox" />
-                <el-option label="Safari" value="safari" />
-                <el-option label="Edge" value="edge" />
-              </el-select>
-              <el-select v-model="headlessMode" :placeholder="t('uiAutomation.testCase.runModeLabel')" size="small" style="width: 110px; margin-right: 10px">
-                <el-option :label="t('uiAutomation.testCase.headedMode')" :value="false" />
-                <el-option :label="t('uiAutomation.testCase.headlessMode')" :value="true" />
-              </el-select>
-              <el-button size="small" type="success" @click="runTestCase(selectedTestCase)" :loading="isRunning">
-                <el-icon v-if="!isRunning"><CaretRight /></el-icon>
-                {{ isRunning ? t('uiAutomation.testCase.running') : t('uiAutomation.testCase.runLabel') }}
-              </el-button>
-              <el-button size="small" v-if="executionResult" @click="toggleView">
-                <el-icon><component :is="showSteps ? 'View' : 'Edit'" /></el-icon>
-                {{ showSteps ? t('uiAutomation.testCase.viewResult') : t('uiAutomation.testCase.editSteps') }}
-              </el-button>
-              <el-button
-                size="small"
-                v-if="executionResult && !showSteps"
-                type="success"
-                @click="runTestCase(selectedTestCase)"
-                :loading="isRunning"
-              >
-                <el-icon v-if="!isRunning"><Refresh /></el-icon>
-                {{ t('uiAutomation.testCase.rerun') }}
-              </el-button>
+              <div class="action-group">
+                <el-button size="small" @click="addStep">
+                  <el-icon><Plus /></el-icon>
+                  {{ t('uiAutomation.testCase.addStep') }}
+                </el-button>
+                <el-button size="small" type="primary" @click="saveTestCase">
+                  <el-icon><Check /></el-icon>
+                  {{ t('uiAutomation.testCase.saveTestCase') }}
+                </el-button>
+                <el-button size="small" type="danger" plain @click="deleteTestCase(selectedTestCase)">
+                  <el-icon><Delete /></el-icon>
+                  {{ t('uiAutomation.common.delete') }}
+                </el-button>
+              </div>
+              <div class="run-group">
+                <el-select v-model="selectedEngine" size="small" style="width: 120px">
+                  <el-option label="Playwright" value="playwright" />
+                  <el-option label="Selenium" value="selenium" />
+                </el-select>
+                <el-select v-model="selectedBrowser" size="small" style="width: 110px">
+                  <el-option label="Chrome" value="chrome" />
+                  <el-option label="Firefox" value="firefox" />
+                  <el-option label="Safari" value="safari" />
+                  <el-option label="Edge" value="edge" />
+                </el-select>
+                <el-select v-model="headlessMode" size="small" style="width: 100px">
+                  <el-option :label="t('uiAutomation.testCase.headedMode')" :value="false" />
+                  <el-option :label="t('uiAutomation.testCase.headlessMode')" :value="true" />
+                </el-select>
+                <el-button size="small" type="success" @click="runTestCase(selectedTestCase)" :loading="isRunning">
+                  <el-icon v-if="!isRunning"><CaretRight /></el-icon>
+                  {{ isRunning ? t('uiAutomation.testCase.running') : t('uiAutomation.testCase.runLabel') }}
+                </el-button>
+                <el-button size="small" v-if="executionResult" @click="toggleView">
+                  <el-icon><component :is="showSteps ? 'View' : 'Edit'" /></el-icon>
+                  {{ showSteps ? t('uiAutomation.testCase.viewResult') : t('uiAutomation.testCase.editSteps') }}
+                </el-button>
+                <el-button
+                  size="small"
+                  v-if="executionResult && !showSteps"
+                  type="success"
+                  @click="runTestCase(selectedTestCase)"
+                  :loading="isRunning"
+                >
+                  <el-icon v-if="!isRunning"><Refresh /></el-icon>
+                  {{ t('uiAutomation.testCase.rerun') }}
+                </el-button>
+              </div>
             </div>
           </div>
 
@@ -506,7 +558,7 @@
 import { ref, reactive, computed, onMounted, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import {
-  Search, Plus, Edit, Delete, Check, CaretRight, ArrowUp, ArrowDown, Rank, Picture, Warning, View, ZoomIn, Refresh, WarningFilled, MagicStick
+  Search, Plus, Edit, Delete, Check, CaretRight, ArrowUp, ArrowDown, Rank, Picture, Warning, View, ZoomIn, Refresh, WarningFilled, MagicStick, CopyDocument, MoreFilled
 } from '@element-plus/icons-vue'
 import draggable from 'vuedraggable'
 import DataFactorySelector from '@/components/DataFactorySelector.vue'
@@ -520,12 +572,14 @@ import {
   createTestCase,
   updateTestCase,
   deleteTestCase as deleteTestCaseApi,
+  batchDeleteTestCases as batchDeleteTestCasesApi,
   getTestCases,
   runTestCase as runTestCaseApi,
   copyTestCase as copyTestCaseApi,
   getLocatorStrategies
 } from '@/api/ui_automation'
 import { getVariableFunctions } from '@/api/data-factory'
+import { resolveUiProjectId, saveUiProjectId } from '@/utils/uiAutomationProject'
 
 // 响应式数据
 const projects = ref([])
@@ -535,6 +589,7 @@ const selectedTestCase = ref(null)
 const currentSteps = ref([])
 const availableElements = ref([])
 const searchKeyword = ref('')
+const selectedCaseIds = ref([])
 const showCreateDialog = ref(false)
 const editingTestCase = ref(null)
 const executionResult = ref(null)
@@ -626,8 +681,14 @@ const loadElements = async () => {
   }
 }
 
+const onProjectSelectChange = async () => {
+  saveUiProjectId(projectId.value)
+  await onProjectChange()
+}
+
 const onProjectChange = async () => {
   selectedTestCase.value = null
+  selectedCaseIds.value = []
   currentSteps.value = []
   executionResult.value = null
 
@@ -819,7 +880,25 @@ const editTestCase = (testCase) => {
   showCreateDialog.value = true
 }
 
+const toggleCaseSelect = (id, checked) => {
+  if (checked) {
+    if (!selectedCaseIds.value.includes(id)) {
+      selectedCaseIds.value.push(id)
+    }
+  } else {
+    selectedCaseIds.value = selectedCaseIds.value.filter((x) => x !== id)
+  }
+}
+
+const onCaseCommand = (cmd, testCase) => {
+  if (cmd === 'run') runTestCase(testCase)
+  else if (cmd === 'edit') editTestCase(testCase)
+  else if (cmd === 'copy') copyTestCase(testCase)
+  else if (cmd === 'delete') deleteTestCase(testCase)
+}
+
 const deleteTestCase = async (testCase) => {
+  if (!testCase?.id) return
   try {
     await ElMessageBox.confirm(
       t('uiAutomation.testCase.delete.confirm', { name: testCase.name }),
@@ -839,6 +918,7 @@ const deleteTestCase = async (testCase) => {
     if (index !== -1) {
       testCases.value.splice(index, 1)
     }
+    selectedCaseIds.value = selectedCaseIds.value.filter((x) => x !== testCase.id)
 
     // 如果删除的是当前选中的用例，清空选择
     if (selectedTestCase.value?.id === testCase.id) {
@@ -847,9 +927,48 @@ const deleteTestCase = async (testCase) => {
       executionResult.value = null
     }
   } catch (error) {
-    if (error !== 'cancel') {
+    if (error !== 'cancel' && error !== 'close') {
       console.error('删除测试用例失败:', error)
-      ElMessage.error('删除失败')
+      const msg = error?.response?.data?.error
+        || error?.response?.data?.detail
+        || t('uiAutomation.testCase.messages.deleteFailed')
+        || '删除失败'
+      ElMessage.error(typeof msg === 'string' ? msg : '删除失败')
+    }
+  }
+}
+
+const batchDeleteTestCases = async () => {
+  const ids = [...selectedCaseIds.value]
+  if (!ids.length) return
+  try {
+    await ElMessageBox.confirm(
+      t('uiAutomation.testCase.delete.batchConfirm', { count: ids.length })
+        || `确定删除选中的 ${ids.length} 个测试用例吗？此操作不可恢复。`,
+      t('uiAutomation.testCase.delete.title'),
+      {
+        confirmButtonText: t('uiAutomation.common.confirm'),
+        cancelButtonText: t('uiAutomation.common.cancel'),
+        type: 'warning'
+      }
+    )
+    await batchDeleteTestCasesApi(ids)
+    ElMessage.success(t('uiAutomation.testCase.delete.success'))
+    testCases.value = testCases.value.filter((tc) => !ids.includes(tc.id))
+    if (selectedTestCase.value && ids.includes(selectedTestCase.value.id)) {
+      selectedTestCase.value = null
+      currentSteps.value = []
+      executionResult.value = null
+    }
+    selectedCaseIds.value = []
+  } catch (error) {
+    if (error !== 'cancel' && error !== 'close') {
+      console.error('批量删除测试用例失败:', error)
+      const msg = error?.response?.data?.error
+        || error?.response?.data?.detail
+        || t('uiAutomation.testCase.messages.deleteFailed')
+        || '删除失败'
+      ElMessage.error(typeof msg === 'string' ? msg : '删除失败')
     }
   }
 }
@@ -1205,7 +1324,7 @@ onMounted(async () => {
   console.log('loadVariableFunctions 完成')
 
   if (projects.value.length > 0) {
-    projectId.value = projects.value[0].id
+    projectId.value = resolveUiProjectId(projects.value)
     await onProjectChange()
   }
 })
@@ -1213,54 +1332,108 @@ onMounted(async () => {
 
 <style scoped>
 .test-case-manager {
-  height: 100vh;
+  height: 100%;
   display: flex;
   flex-direction: column;
+  background: #f3f5f8;
+  padding: 16px 20px 20px;
+  box-sizing: border-box;
 }
 
 .page-header {
   display: flex;
   justify-content: space-between;
-  align-items: center;
-  padding: 20px;
-  border-bottom: 1px solid #e6e6e6;
-  background: white;
+  align-items: flex-start;
+  margin-bottom: 16px;
 }
 
 .page-title {
   margin: 0;
-  font-size: 24px;
+  font-size: 22px;
+  font-weight: 650;
+  color: #1f2a37;
+  letter-spacing: -0.02em;
+}
+
+.page-subtitle {
+  margin: 6px 0 0;
+  font-size: 13px;
+  color: #6b7280;
 }
 
 .header-actions {
   display: flex;
   align-items: center;
+  gap: 12px;
 }
 
 .main-content {
   flex: 1;
+  min-height: 0;
   display: flex;
+  gap: 14px;
   overflow: hidden;
 }
 
 .left-panel {
-  width: 350px;
-  border-right: 1px solid #e6e6e6;
-  background: white;
+  width: 360px;
+  flex-shrink: 0;
+  background: #fff;
+  border: 1px solid #e5e9f0;
+  border-radius: 12px;
   display: flex;
   flex-direction: column;
+  box-shadow: 0 1px 2px rgba(16, 24, 40, 0.04);
+  overflow: hidden;
 }
 
 .panel-header {
-  padding: 15px;
-  border-bottom: 1px solid #e6e6e6;
   display: flex;
-  justify-content: space-between;
-  align-items: center;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px 14px 12px;
+  border-bottom: 1px solid #eef1f5;
 }
 
-.panel-header h3 {
+.panel-title-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.panel-title-row h3 {
   margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+  color: #1f2a37;
+}
+
+.case-count {
+  min-width: 22px;
+  height: 22px;
+  padding: 0 7px;
+  border-radius: 999px;
+  background: #eef2ff;
+  color: #4338ca;
+  font-size: 12px;
+  font-weight: 600;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.panel-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.panel-header-actions .el-input {
+  flex: 1;
+}
+
+.case-select {
+  padding-top: 2px;
 }
 
 .test-case-list {
@@ -1269,99 +1442,156 @@ onMounted(async () => {
   padding: 10px;
 }
 
+.empty-cases {
+  padding: 24px 8px;
+}
+
 .test-case-item {
-  border: 1px solid #e6e6e6;
-  border-radius: 6px;
-  margin-bottom: 10px;
-  padding: 15px;
+  border: 1px solid #e8edf3;
+  border-radius: 10px;
+  margin-bottom: 8px;
+  padding: 12px;
   cursor: pointer;
-  transition: all 0.3s;
+  transition: border-color 0.15s ease, background 0.15s ease, box-shadow 0.15s ease;
+  background: #fff;
 }
 
 .test-case-item:hover {
-  border-color: #409eff;
-  box-shadow: 0 2px 8px rgba(64, 158, 255, 0.1);
+  border-color: #bfdbfe;
+  box-shadow: 0 2px 8px rgba(37, 99, 235, 0.06);
 }
 
 .test-case-item.active {
-  border-color: #409eff;
-  background-color: #f0f8ff;
+  border-color: #60a5fa;
+  background: #f8fbff;
 }
 
 .case-header {
   display: flex;
-  justify-content: space-between;
   align-items: flex-start;
-  margin-bottom: 10px;
+  gap: 8px;
+  margin-bottom: 8px;
 }
 
 .case-info {
   flex: 1;
+  min-width: 0;
 }
 
 .case-name {
-  margin: 0 0 5px 0;
-  font-size: 16px;
+  margin: 0 0 4px;
+  font-size: 14px;
   font-weight: 600;
+  color: #111827;
+  line-height: 1.35;
 }
 
 .case-description {
   margin: 0;
-  color: #666;
-  font-size: 14px;
+  color: #6b7280;
+  font-size: 12px;
   line-height: 1.4;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
 }
 
-.case-actions {
-  display: flex;
-  gap: 5px;
+.more-btn {
+  margin-top: -2px;
 }
 
 .case-meta {
   display: flex;
   align-items: center;
-  gap: 10px;
+  flex-wrap: wrap;
+  gap: 6px;
   font-size: 12px;
-  color: #888;
+  color: #9ca3af;
+  padding-left: 26px;
 }
 
-.step-count {
-  color: #409eff;
-  font-weight: 500;
+.meta-chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 1px 8px;
+  border-radius: 999px;
+  background: #f3f4f6;
+  color: #4b5563;
+}
+
+.meta-chip.linked {
+  background: #ecfdf5;
+  color: #047857;
+}
+
+.update-time {
+  margin-left: auto;
 }
 
 .right-panel {
   flex: 1;
-  background: white;
+  min-width: 0;
+  background: #fff;
+  border: 1px solid #e5e9f0;
+  border-radius: 12px;
   display: flex;
   flex-direction: column;
+  overflow: hidden;
+  box-shadow: 0 1px 2px rgba(16, 24, 40, 0.04);
 }
 
 .test-case-detail {
   flex: 1;
   display: flex;
   flex-direction: column;
-  padding: 20px;
   overflow: hidden;
   height: 100%;
 }
 
 .detail-header {
+  padding: 14px 16px;
+  border-bottom: 1px solid #eef1f5;
   display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 20px;
-  padding-bottom: 15px;
-  border-bottom: 1px solid #e6e6e6;
+  flex-direction: column;
+  gap: 12px;
+  background: #fff;
 }
 
-.detail-header h3 {
+.detail-title-block h3 {
   margin: 0;
+  font-size: 18px;
+  font-weight: 650;
+  color: #111827;
+}
+
+.detail-desc {
+  margin: 4px 0 0;
+  font-size: 13px;
+  color: #6b7280;
 }
 
 .detail-actions {
   display: flex;
-  gap: 10px;
+  flex-wrap: wrap;
+  gap: 10px 14px;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.action-group,
+.run-group {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.no-selection {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .steps-container {
@@ -1369,10 +1599,10 @@ onMounted(async () => {
   display: flex;
   flex-direction: column;
   min-height: 0;
-  margin-bottom: 20px;
-  border: 1px solid #e6e6e6;
-  border-radius: 6px;
-  background: #fafafa;
+  margin: 12px 16px 16px;
+  border: 1px solid #e8edf3;
+  border-radius: 10px;
+  background: #fafbfd;
   overflow: hidden;
 }
 

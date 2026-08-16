@@ -120,6 +120,10 @@
               <el-icon><Odometer /></el-icon>
               <span>{{ $t('menu.dashboard') }}</span>
             </el-menu-item>
+            <el-menu-item index="/ui-automation/self-healing">
+              <el-icon><MagicStick /></el-icon>
+              <span>自愈中心</span>
+            </el-menu-item>
             <el-menu-item index="/ui-automation/projects">
               <el-icon><Folder /></el-icon>
               <span>{{ $t('menu.projectManagement') }}</span>

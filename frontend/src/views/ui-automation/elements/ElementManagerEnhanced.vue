@@ -27,6 +27,20 @@
             <el-button type="success" size="small" @click="createEmptyElement" :title="$t('uiAutomation.element.addElement')">
               <el-icon><Plus /></el-icon>
             </el-button>
+            <el-button
+              type="danger"
+              size="small"
+              plain
+              :disabled="!checkedElementIds.length && !checkedGroupIds.length"
+              :loading="batchDeleting"
+              @click="batchDeleteChecked"
+              title="批量删除"
+            >
+              <el-icon><Delete /></el-icon>
+              <span v-if="checkedElementIds.length || checkedGroupIds.length">
+                {{ checkedElementIds.length + checkedGroupIds.length }}
+              </span>
+            </el-button>
           </div>
         </div>
 
@@ -37,8 +51,10 @@
             :data="treeData"
             :props="treeProps"
             node-key="id"
+            show-checkbox
             :expand-on-click-node="false"
             :default-expanded-keys="expandedKeys"
+            @check="onTreeCheck"
             @node-click="onNodeClick"
             @node-contextmenu="onNodeRightClick"
             @node-expand="onNodeExpand"
@@ -74,6 +90,17 @@
                 <span v-if="data.type === 'element' && data.component_name" class="region-tag" :title="data.component_name">
                   {{ data.component_name }}
                 </span>
+
+                <el-button
+                  v-if="data.id !== 'unassigned'"
+                  class="node-delete-btn"
+                  link
+                  type="danger"
+                  size="small"
+                  @click.stop="deleteTreeNode(data)"
+                >
+                  <el-icon><Delete /></el-icon>
+                </el-button>
               </div>
             </template>
           </el-tree>
@@ -119,6 +146,15 @@
                 <el-form-item>
                   <el-button type="primary" @click="saveElement" :loading="saving" ref="saveButtonRef">
                     {{ $t('uiAutomation.common.save') }}
+                  </el-button>
+                  <el-button
+                    v-if="selectedElement.id"
+                    type="danger"
+                    plain
+                    :loading="deleting"
+                    @click="deleteSelectedElement"
+                  >
+                    {{ $t('uiAutomation.common.delete') }}
                   </el-button>
                 </el-form-item>
               </el-form>
@@ -420,12 +456,14 @@ import {
   getElementDetail,
   updateElement,
   deleteElement,
+  batchDeleteElements,
   getElementTree,
   getElementGroupTree,
   getElementGroups,
   createElementGroup,
   updateElementGroup,
   deleteElementGroup,
+  batchDeleteElementGroups,
   getLocatorStrategies,
   validateElementLocator,
   generateElementSuggestions,
@@ -541,7 +579,8 @@ const editPageForm = reactive({
 // 树形组件配置
 const treeProps = {
   children: 'children',
-  label: 'name'
+  label: 'name',
+  disabled: 'disabled'
 }
 
 // 表单验证规则
@@ -640,6 +679,10 @@ const editInputRef = ref(null)
 
 // 状态
 const saving = ref(false)
+const deleting = ref(false)
+const batchDeleting = ref(false)
+const checkedElementIds = ref([])
+const checkedGroupIds = ref([])
 const validating = ref(false)
 const generating = ref(false)
 const suggestions = ref([])
@@ -884,6 +927,7 @@ const loadElementTree = async () => {
         id: 'unassigned',
         name: '未关联页面',
         type: 'page',
+        disabled: true,
         children: unassignedElements.map(element => ({
           ...element,
           type: 'element'
@@ -1660,22 +1704,65 @@ const editNode = async () => {
   }
 }
 
-// 删除节点
+// 删除节点（右键菜单）
 const deleteNode = async () => {
-  console.log('Delete node clicked, rightClickedNode:', rightClickedNode.value)
   showContextMenu.value = false
-
   if (!rightClickedNode.value) return
+  await deleteTreeNode(rightClickedNode.value)
+}
 
-  // 禁止删除"未关联页面"节点
-  if (rightClickedNode.value.id === 'unassigned') {
-    ElMessage.warning('未关联页面节点不能删除')
-    return
+// 删除当前详情中的元素
+const deleteSelectedElement = async () => {
+  if (!selectedElement.value?.id) return
+  await deleteTreeNode({
+    id: selectedElement.value.id,
+    name: selectedElement.value.name,
+    type: 'element'
+  })
+}
+
+const countElementsUnderNode = (node) => {
+  if (!node) return 0
+  if (node.type === 'element') return 1
+  let count = 0
+  const walk = (n) => {
+    ;(n.children || []).forEach((c) => {
+      if (c.type === 'element') count += 1
+      else walk(c)
+    })
   }
+  walk(node)
+  return count
+}
+
+const onTreeCheck = () => {
+  const nodes = treeRef.value?.getCheckedNodes?.(false, false) || []
+  checkedElementIds.value = nodes
+    .filter((n) => n.type === 'element' && n.id !== 'unassigned')
+    .map((n) => n.id)
+  checkedGroupIds.value = nodes
+    .filter((n) => n.type === 'page' && n.id !== 'unassigned')
+    .map((n) => n.id)
+}
+
+const clearTreeChecks = () => {
+  checkedElementIds.value = []
+  checkedGroupIds.value = []
+  treeRef.value?.setCheckedKeys?.([])
+}
+
+const batchDeleteChecked = async () => {
+  const elementIds = [...checkedElementIds.value]
+  const groupIds = [...checkedGroupIds.value]
+  if (!elementIds.length && !groupIds.length) return
+
+  const parts = []
+  if (groupIds.length) parts.push(`${groupIds.length} 个文件夹`)
+  if (elementIds.length) parts.push(`${elementIds.length} 个元素`)
 
   try {
     await ElMessageBox.confirm(
-      t('uiAutomation.element.messages.confirmDeleteNode', { name: rightClickedNode.value.name }),
+      `确定删除选中的 ${parts.join('、')} 吗？删除文件夹将同时删除其下全部元素，此操作不可恢复。`,
       t('uiAutomation.common.confirmDelete'),
       {
         type: 'warning',
@@ -1684,39 +1771,146 @@ const deleteNode = async () => {
       }
     )
 
-    console.log('Deleting node:', rightClickedNode.value)
+    batchDeleting.value = true
+    let deleted = 0
+    let failed = 0
 
-    if (rightClickedNode.value.type === 'page') {
-      // 删除页面（分组）
-      console.log('Calling deleteElementGroup with id:', rightClickedNode.value.id)
-      await deleteElementGroup(rightClickedNode.value.id)
-      ElMessage.success(t('uiAutomation.element.messages.pageDeleteSuccess'))
-    } else if (rightClickedNode.value.type === 'element') {
-      // 删除元素
-      console.log('Calling deleteElement with id:', rightClickedNode.value.id)
-      await deleteElement(rightClickedNode.value.id)
+    if (groupIds.length) {
+      try {
+        const res = await batchDeleteElementGroups(groupIds)
+        deleted += res.data?.deleted ?? groupIds.length
+        failed += res.data?.failed ?? 0
+      } catch (err) {
+        const status = err?.response?.status
+        if (status === 405 || status === 404) {
+          for (const id of groupIds) {
+            try {
+              await deleteElementGroup(id)
+              deleted += 1
+            } catch {
+              failed += 1
+            }
+          }
+        } else {
+          throw err
+        }
+      }
+    }
+
+    // 文件夹删除后，其中元素可能已删；再删剩余勾选元素
+    const remainingElementIds = elementIds.filter((id) => {
+      // 若所属分组已删，接口会 404，可忽略
+      return true
+    })
+    if (remainingElementIds.length) {
+      try {
+        const res = await batchDeleteElements(remainingElementIds)
+        deleted += res.data?.deleted ?? 0
+        failed += res.data?.failed ?? 0
+      } catch (err) {
+        const status = err?.response?.status
+        if (status === 405 || status === 404) {
+          for (const id of remainingElementIds) {
+            try {
+              await deleteElement(id)
+              deleted += 1
+            } catch {
+              failed += 1
+            }
+          }
+        } else {
+          throw err
+        }
+      }
+    }
+
+    if (selectedElement.value && (
+      elementIds.includes(selectedElement.value.id)
+      || groupIds.includes(selectedElement.value.group)
+    )) {
+      selectedElement.value = null
+    }
+
+    if (failed) {
+      ElMessage.warning(`已处理完成，部分失败（失败 ${failed}）`)
+    } else {
       ElMessage.success(t('uiAutomation.element.messages.deleteSuccess'))
-      // 如果当前选中的是被删除的元素，清空选中
-      if (selectedElement.value && selectedElement.value.id === rightClickedNode.value.id) {
+    }
+
+    clearTreeChecks()
+    await Promise.all([loadPages(), loadElementTree()])
+    treeKey.value += 1
+  } catch (error) {
+    if (error !== 'cancel' && error !== 'close') {
+      console.error('批量删除失败:', error)
+      ElMessage.error(t('uiAutomation.element.messages.deleteFailed'))
+    }
+  } finally {
+    batchDeleting.value = false
+  }
+}
+
+// 删除树节点（页面或元素）
+const deleteTreeNode = async (node) => {
+  if (!node) return
+
+  // 禁止删除"未关联页面"节点
+  if (node.id === 'unassigned') {
+    ElMessage.warning('未关联页面节点不能删除')
+    return
+  }
+
+  try {
+    const isFolder = node.type === 'page'
+    const childCount = isFolder ? countElementsUnderNode(node) : 0
+    const message = isFolder
+      ? `确定删除文件夹「${node.name}」吗？${childCount ? `其下 ${childCount} 个元素将一并删除。` : ''}此操作不可恢复。`
+      : t('uiAutomation.element.messages.confirmDeleteNode', { name: node.name })
+
+    await ElMessageBox.confirm(
+      message,
+      t('uiAutomation.common.confirmDelete'),
+      {
+        type: 'warning',
+        confirmButtonText: t('uiAutomation.common.confirm'),
+        cancelButtonText: t('uiAutomation.common.cancel')
+      }
+    )
+
+    deleting.value = true
+    if (isFolder) {
+      await deleteElementGroup(node.id)
+      ElMessage.success(t('uiAutomation.element.messages.pageDeleteSuccess'))
+      if (
+        selectedElement.value
+        && (selectedElement.value.group === node.id || selectedElement.value.page === node.name)
+      ) {
+        selectedElement.value = null
+      }
+    } else if (node.type === 'element') {
+      await deleteElement(node.id)
+      ElMessage.success(t('uiAutomation.element.messages.deleteSuccess'))
+      if (selectedElement.value && selectedElement.value.id === node.id) {
         selectedElement.value = null
       }
     }
 
-    console.log('Reload data after deletion')
-
-    // 重新加载数据
+    clearTreeChecks()
     await Promise.all([
       loadPages(),
       loadElementTree()
     ])
-
-    // 强制刷新树组件
     treeKey.value += 1
   } catch (error) {
-    if (error !== 'cancel') {
+    if (error !== 'cancel' && error !== 'close') {
       console.error('删除失败:', error)
-      ElMessage.error(t('uiAutomation.element.messages.deleteFailed'))
+      const msg = error?.response?.data?.detail
+        || error?.response?.data?.error
+        || t('uiAutomation.element.messages.deleteFailed')
+      ElMessage.error(typeof msg === 'string' ? msg : t('uiAutomation.element.messages.deleteFailed'))
     }
+  } finally {
+    deleting.value = false
   }
 }
 
@@ -1819,6 +2013,19 @@ const updatePage = async () => {
   align-items: center;
   gap: 5px;
   padding: 5px 0;
+  width: 100%;
+  min-width: 0;
+
+  .node-delete-btn {
+    margin-left: auto;
+    opacity: 0;
+    flex-shrink: 0;
+    padding: 2px 4px;
+  }
+
+  &:hover .node-delete-btn {
+    opacity: 1;
+  }
 }
 
 .node-label {
@@ -1826,6 +2033,7 @@ const updatePage = async () => {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  min-width: 0;
 }
 
 .element-type-tag {

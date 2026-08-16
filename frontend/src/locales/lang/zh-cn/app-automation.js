@@ -106,16 +106,19 @@ export default {
 
   // dashboard
   dashboard: {
+    title: '数据看板',
     totalDevices: '总设备数',
-    onlineDevices: '在线设备',
+    onlineDevices: '可用/在线设备',
     lockedDevices: '已锁定设备',
     testCases: '测试用例',
     executionStatistics: '执行统计',
     totalExecutions: '总执行次数',
+    runningCount: '执行中',
     successCount: '成功次数',
     failedCount: '失败次数',
     passRate: '通过率',
     recentExecutions: '最近执行记录',
+    executionDetail: '执行详情',
     viewAll: '查看全部',
     noExecutionRecords: '暂无执行记录',
     device: '设备',

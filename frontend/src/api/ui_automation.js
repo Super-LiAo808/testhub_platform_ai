@@ -118,6 +118,15 @@ export function deleteElement(id) {
   })
 }
 
+// 批量删除UI元素
+export function batchDeleteElements(ids) {
+  return request({
+    url: '/ui-automation/elements/batch-delete/',
+    method: 'post',
+    data: { ids }
+  })
+}
+
 // 测试脚本相关API
 
 // 获取测试脚本列表
@@ -160,6 +169,41 @@ export function deleteTestScript(id) {
   return request({
     url: `/ui-automation/test-scripts/${id}/`,
     method: 'delete'
+  })
+}
+
+// 批量删除测试脚本
+export function batchDeleteTestScripts(ids) {
+  return request({
+    url: '/ui-automation/test-scripts/batch-delete/',
+    method: 'post',
+    data: { ids }
+  })
+}
+
+// 运行测试脚本（独立产物）
+export function runTestScript(id, data = {}) {
+  return request({
+    url: `/ui-automation/test-scripts/${id}/run/`,
+    method: 'post',
+    data
+  })
+}
+
+// 从关联用例显式同步脚本
+export function syncTestScriptFromCase(id, data = { force: true }) {
+  return request({
+    url: `/ui-automation/test-scripts/${id}/sync-from-case/`,
+    method: 'post',
+    data
+  })
+}
+
+// 查询脚本与用例一致性
+export function getTestScriptSyncStatus(id) {
+  return request({
+    url: `/ui-automation/test-scripts/${id}/sync-status/`,
+    method: 'get'
   })
 }
 
@@ -424,6 +468,15 @@ export function deleteElementGroup(id) {
   return request({
     url: `/ui-automation/element-groups/${id}/`,
     method: 'delete'
+  })
+}
+
+// 批量删除元素分组（文件夹）
+export function batchDeleteElementGroups(ids) {
+  return request({
+    url: '/ui-automation/element-groups/batch-delete/',
+    method: 'post',
+    data: { ids }
   })
 }
 
@@ -718,6 +771,15 @@ export function deleteTestCase(id) {
   return request({
     url: `/ui-automation/test-cases/${id}/`,
     method: 'delete'
+  })
+}
+
+// 批量删除测试用例
+export function batchDeleteTestCases(ids) {
+  return request({
+    url: '/ui-automation/test-cases/batch-delete/',
+    method: 'post',
+    data: { ids }
   })
 }
 
@@ -1130,6 +1192,14 @@ export function diagnoseTestCaseExecution(id, data = {}) {
   })
 }
 
+export function diagnoseTestExecution(id, data = {}) {
+  return request({
+    url: `/ui-automation/test-executions/${id}/diagnose/`,
+    method: 'post',
+    data
+  })
+}
+
 export function diagnoseTestCase(id, data = {}) {
   return request({
     url: `/ui-automation/test-cases/${id}/diagnose/`,
@@ -1210,5 +1280,37 @@ export function getFailureDiagnosis(id) {
   return request({
     url: `/ui-automation/failure-diagnoses/${id}/`,
     method: 'get'
+  })
+}
+
+export function listFailureDiagnoses(params = {}) {
+  return request({
+    url: '/ui-automation/failure-diagnoses/',
+    method: 'get',
+    params
+  })
+}
+
+export function getSelfHealingStats(params = {}) {
+  return request({
+    url: '/ui-automation/self-healing/stats/',
+    method: 'get',
+    params
+  })
+}
+
+export function rollbackScriptFix(diagnosisId, data = {}) {
+  return request({
+    url: `/ui-automation/failure-diagnoses/${diagnosisId}/rollback-script-fix/`,
+    method: 'post',
+    data
+  })
+}
+
+export function diagnoseAppExecution(id, data = {}) {
+  return request({
+    url: `/app-automation/executions/${id}/diagnose/`,
+    method: 'post',
+    data
   })
 }

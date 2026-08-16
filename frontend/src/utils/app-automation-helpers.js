@@ -183,3 +183,19 @@ export function formatRelativeTime(timeStr) {
   if (diff < 86400000) return t('appAutomation.common.hoursAgo', { n: Math.floor(diff / 3600000) })
   return t('appAutomation.common.daysAgo', { n: Math.floor(diff / 86400000) })
 }
+
+/**
+ * 格式化执行时长（秒）
+ * @param {number} seconds
+ * @returns {string}
+ */
+export function formatDuration(seconds) {
+  const n = Number(seconds)
+  if (!n || n <= 0) return '0s'
+  if (n < 60) return `${n.toFixed(n < 10 ? 1 : 0)}s`
+  const m = Math.floor(n / 60)
+  const s = Math.round(n % 60)
+  if (m < 60) return `${m}m${s}s`
+  const h = Math.floor(m / 60)
+  return `${h}h${m % 60}m`
+}
